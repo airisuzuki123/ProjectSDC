@@ -1,0 +1,17 @@
+# Local/editor files
+.DS_Store
+Thumbs.db
+*.log
+
+# Dependency caches
+node_modules/
+.pnpm-store/
+
+# Temporary outputs
+tmp/
+temp/
+dist/
+build/
+
+# Codex/local agent state
+.agents/

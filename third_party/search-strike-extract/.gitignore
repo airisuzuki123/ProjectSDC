@@ -1,0 +1,15 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/
+
+# dependencies / build (none currently, kept for safety)
+node_modules/
+dist/
+
+# logs
+*.log
+npm-debug.log*
