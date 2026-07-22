@@ -542,19 +542,20 @@
       if (!p.backpack.length) grid.appendChild(h('div', { class: 'empty', text: t('ui.inv.empty') }));
       p.backpack.forEach((s, i) => {
         const def = G.getItem(s.id);
+        const slotText = t('ui.inv.slotCost', { n: (def.slotCost || 1) * s.n });
         if (def.type === 'med') {
           grid.appendChild(itemTile(s.id, s.n, {
-            tag: t('ui.inv.tag.use'),
+            tag: slotText + ' · ' + t('ui.inv.tag.use'),
             onclick: () => { p.useMed(raid); this.openRaidInventory(raid); },
           }));
         } else if (def.type === 'armor') {
           grid.appendChild(itemTile(s.id, s.n, {
-            tag: t('ui.inv.tag.equip'),
+            tag: slotText + ' · ' + t('ui.inv.tag.equip'),
             onclick: () => { p.equipArmorById(s.id, raid); this.openRaidInventory(raid); },
           }));
         } else {
           grid.appendChild(itemTile(s.id, s.n, {
-            tag: t('ui.inv.tag.drop'),
+            tag: slotText + ' · ' + t('ui.inv.tag.drop'),
             onclick: (e) => {
               const tile = e.currentTarget;
               if (tile.dataset.c) {

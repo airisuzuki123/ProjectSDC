@@ -484,10 +484,18 @@ ok('armor upgrade with a full backpack does not lose the worn plate', () => {
   const raid = new G.Raid(G.Locations[0], { weapons: [{ id: 'w_pistol', mag: 8 }, null], armorId: 'a_vest1', reserve: {}, backpack: [] });
   const p = raid.player;
   p.backpack = [];
-  for (let i = 0; i < G.Config.BACKPACK_SLOTS; i++) p.backpack.push({ id: 'v_gpu', n: 1 }); // jam the bag full
+  for (let i = 0; i < G.Config.BACKPACK_SLOTS; i++) p.backpack.push({ id: 'v_cash', n: 1 }); // jam the bag full
   const leftover = p.addLoot('a_vest3', 1); // stronger plate, but nowhere to stow the old one
   if (p.armor.id !== 'a_vest1') throw new Error('swapped armor with a full bag — the old plate would be lost');
   if (leftover !== 1) throw new Error('new plate should stay as leftover when the bag is full');
+});
+ok('backpack capacity uses item slotCost, not stack entries', () => {
+  const raid = new G.Raid(G.Locations[0], G.Profile.scavKit());
+  const p = raid.player;
+  p.backpack = [];
+  if (p.addLoot('v_gpu', 4) !== 0) throw new Error('four 3-slot GPUs should fit exactly in a 12-slot bag');
+  if (p.backpackCount() !== G.Config.BACKPACK_SLOTS) throw new Error('bag used slots mismatch');
+  if (p.addLoot('v_cash', 1) !== 1) throw new Error('full bag accepted extra loot');
 });
 ok('equipArmor (key 3) equips the best plate from the backpack', () => {
   const raid = new G.Raid(G.Locations[0], { weapons: [{ id: 'w_pistol', mag: 8 }, null], armorId: null, reserve: {}, backpack: [] });

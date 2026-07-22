@@ -229,7 +229,16 @@
     },
 
     // ---- inventory ----
-    backpackCount() { return this.backpack.length; },
+    backpackCount() { return this.backpackUsed(); },
+    backpackUsed() {
+      let used = 0;
+      for (const s of this.backpack) {
+        const def = G.getItem(s.id);
+        used += (def && def.slotCost ? def.slotCost : 1) * s.n;
+      }
+      return used;
+    },
+    backpackFree() { return Math.max(0, C.BACKPACK_SLOTS - this.backpackUsed()); },
     addLoot(id, n) {
       const def = G.getItem(id);
       if (!def) return n;
@@ -267,14 +276,22 @@
         }
       }
       const max = def.stack || 1;
+      const slotCost = def.slotCost || 1;
       let left = n;
       if (max > 1) {
         for (const s of this.backpack) {
-          if (s.id === id && s.n < max) { const add = Math.min(max - s.n, left); s.n += add; left -= add; if (left <= 0) return 0; }
+          if (s.id === id && s.n < max) {
+            const fitByStack = max - s.n;
+            const fitBySpace = Math.floor(this.backpackFree() / slotCost);
+            const add = Math.min(fitByStack, fitBySpace, left);
+            if (add > 0) { s.n += add; left -= add; }
+            if (left <= 0) return 0;
+            if (fitBySpace <= 0) return left;
+          }
         }
       }
-      while (left > 0 && this.backpack.length < C.BACKPACK_SLOTS) {
-        const add = Math.min(max, left);
+      while (left > 0 && this.backpackFree() >= slotCost) {
+        const add = Math.min(max, left, Math.floor(this.backpackFree() / slotCost));
         this.backpack.push({ id, n: add }); left -= add;
       }
       return left; // leftover that didn't fit

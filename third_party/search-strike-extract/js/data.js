@@ -28,7 +28,7 @@
     VISION_RANGE: 430,      // enemy sight distance
     VISION_FOV: 1.15,       // half-angle radians (~66deg each side)
     HEAR_RANGE: 360,        // gunshot hearing radius
-    BACKPACK_SLOTS: 24,
+    BACKPACK_SLOTS: 12,
     STASH_SLOTS: 60,
     SCAV_LOOT_KEEP: 0.5,    // fraction of valuables kept when extracting on a free scav run
 
@@ -110,17 +110,17 @@
   def({ id: 'm_surgical', name: 'Surgical Kit', type: 'med', heal: 100, useTime: 4.5, value: 300, rarity: 'rare', color: '#e85555', stack: 3 });
 
   // -- Valuables (loot to sell) --
-  def({ id: 'v_watch', name: 'Gold Watch', type: 'valuable', value: 240, rarity: 'rare', color: '#f0c44a', stack: 5 });
-  def({ id: 'v_chain', name: 'Gold Chain', type: 'valuable', value: 180, rarity: 'uncommon', color: '#e8c24a', stack: 5 });
-  def({ id: 'v_gpu', name: 'Graphics Card', type: 'valuable', value: 520, rarity: 'epic', color: '#3fd07a', stack: 3 });
-  def({ id: 'v_cash', name: 'Cash Stack', type: 'valuable', value: 150, rarity: 'uncommon', color: '#6fbf6f', stack: 20 });
-  def({ id: 'v_phone', name: 'Smartphone', type: 'valuable', value: 95, rarity: 'common', color: '#3a8fd0', stack: 10 });
-  def({ id: 'v_meds', name: 'Drug Vials', type: 'valuable', value: 130, rarity: 'uncommon', color: '#c060d0', stack: 10 });
-  def({ id: 'v_tools', name: 'Tool Set', type: 'valuable', value: 75, rarity: 'common', color: '#c08040', stack: 8 });
-  def({ id: 'v_doc', name: 'Secure Docs', type: 'valuable', value: 320, rarity: 'rare', color: '#d0d040', stack: 6 });
-  def({ id: 'v_bitcoin', name: 'Physical Bitcoin', type: 'valuable', value: 900, rarity: 'epic', color: '#f7931a', stack: 2 });
-  def({ id: 'v_canned', name: 'Canned Food', type: 'valuable', value: 35, rarity: 'common', color: '#9aa055', stack: 12 });
-  def({ id: 'v_water', name: 'Water Bottle', type: 'valuable', value: 28, rarity: 'common', color: '#5ab0d0', stack: 12 });
+  def({ id: 'v_watch', name: 'Gold Watch', type: 'valuable', value: 240, rarity: 'rare', color: '#f0c44a', stack: 5, slotCost: 1 });
+  def({ id: 'v_chain', name: 'Gold Chain', type: 'valuable', value: 180, rarity: 'uncommon', color: '#e8c24a', stack: 5, slotCost: 1 });
+  def({ id: 'v_gpu', name: 'Graphics Card', type: 'valuable', value: 520, rarity: 'epic', color: '#3fd07a', stack: 3, slotCost: 3 });
+  def({ id: 'v_cash', name: 'Cash Stack', type: 'valuable', value: 150, rarity: 'uncommon', color: '#6fbf6f', stack: 20, slotCost: 1 });
+  def({ id: 'v_phone', name: 'Smartphone', type: 'valuable', value: 95, rarity: 'common', color: '#3a8fd0', stack: 10, slotCost: 1 });
+  def({ id: 'v_meds', name: 'Drug Vials', type: 'valuable', value: 130, rarity: 'uncommon', color: '#c060d0', stack: 10, slotCost: 1 });
+  def({ id: 'v_tools', name: 'Tool Set', type: 'valuable', value: 75, rarity: 'common', color: '#c08040', stack: 8, slotCost: 1 });
+  def({ id: 'v_doc', name: 'Secure Docs', type: 'valuable', value: 320, rarity: 'rare', color: '#d0d040', stack: 6, slotCost: 2 });
+  def({ id: 'v_bitcoin', name: 'Physical Bitcoin', type: 'valuable', value: 900, rarity: 'epic', color: '#f7931a', stack: 2, slotCost: 3 });
+  def({ id: 'v_canned', name: 'Canned Food', type: 'valuable', value: 35, rarity: 'common', color: '#9aa055', stack: 12, slotCost: 1 });
+  def({ id: 'v_water', name: 'Water Bottle', type: 'valuable', value: 28, rarity: 'common', color: '#5ab0d0', stack: 12, slotCost: 1 });
   def({ id: 'd_scroll_fragment', name: 'Extraction Scroll Fragment', type: 'key', value: 0, rarity: 'rare', color: '#8fd6ff', stack: 99 });
 
   G.Items = ITEMS;
