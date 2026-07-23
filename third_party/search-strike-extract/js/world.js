@@ -464,6 +464,23 @@
           if (i > 0 && j > 0 && i < W - 1 && j < H - 1) grid[idx(i, j)] = 0;
     };
     const centerOf = (r) => map_tileCenter(r.cx, r.cy, T);
+    const roomWaveCount = (cell) => {
+      const depth = Math.max(0, cell.pathIndex || 0);
+      if (cell.kind === 'spawn') return 0;
+      if (cell.kind === 'reward') return cfg.roomRewardWaveCount || 2;
+      if (cell.kind === 'extract') return cfg.roomExtractWaveCount || 3;
+      const base = cfg.roomWaveCountBase || 1;
+      const perDepth = cfg.roomWaveCountPerDepth == null ? 1 : cfg.roomWaveCountPerDepth;
+      return Math.min(cfg.roomWaveCountMax || 4, base + Math.floor(depth * perDepth));
+    };
+    const roomWaveSize = (cell) => {
+      const depth = Math.max(0, cell.pathIndex || 0);
+      if (cell.kind === 'spawn') return 0;
+      if (cell.kind === 'reward') return cfg.roomRewardWaveSize || 5;
+      if (cell.kind === 'extract') return cfg.roomExtractWaveSize || 6;
+      const depthBonus = Math.min(cfg.roomWaveSizeDepthCap || 4, Math.floor(depth * (cfg.roomWaveSizePerDepth || 1)));
+      return (cfg.roomWaveBaseCount || 4) + depthBonus;
+    };
     const addRoom = (cell) => {
       const x = margin + cell.gx * (roomW + gap);
       const y = margin + cell.gy * (roomH + gap);
@@ -474,8 +491,8 @@
         cx: x + Math.floor(roomW / 2),
         cy: y + Math.floor(roomH / 2),
         kind: cell.kind, pathIndex: cell.pathIndex, main: !!cell.main,
-        waveCount: cell.kind === 'spawn' ? 0 : cell.kind === 'reward' ? 2 : cell.kind === 'extract' ? 2 : 1 + Math.min(2, cell.pathIndex),
-        waveSize: cell.kind === 'spawn' ? 0 : cell.kind === 'reward' ? 4 : cell.kind === 'extract' ? 5 : (cfg.roomWaveBaseCount || 3) + Math.min(3, cell.pathIndex),
+        waveCount: roomWaveCount(cell),
+        waveSize: roomWaveSize(cell),
       };
       carveRect(r.x, r.y, r.w, r.h);
       rooms.push(r);

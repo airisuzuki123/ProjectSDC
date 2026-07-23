@@ -719,12 +719,13 @@
       const d = this.dungeon;
       if (!d.roomStates[roomId]) {
         const room = this.map.rooms.find(r => r.id === roomId) || {};
+        const cfg = G.DemoConfig || {};
         d.roomStates[roomId] = {
           started: false,
           cleared: room.kind === 'spawn',
           wavesRemaining: room.waveCount || 0,
           activeWave: false,
-          reviveTimer: (G.DemoConfig && G.DemoConfig.roomReviveInterval) || 14,
+          reviveTimer: cfg.roomReviveInterval || 16,
         };
       }
       return d.roomStates[roomId];
@@ -743,14 +744,18 @@
         if (st.wavesRemaining > 0) this._spawnRoomWave(room.id);
         else {
           st.cleared = true;
-          st.reviveTimer = (G.DemoConfig && G.DemoConfig.roomReviveInterval) || 14;
+          st.reviveTimer = ((G.DemoConfig || {}).roomReviveInterval) || 16;
           this.toast(G.t('raid.toast.roomCleared'));
         }
       } else if (st.cleared) {
+        if (alive > 0) return;
         st.reviveTimer -= dt;
         if (st.reviveTimer <= 0) {
-          this._spawnRoomRevive(room.id);
-          st.reviveTimer += (G.DemoConfig && G.DemoConfig.roomReviveInterval) || 14;
+          if (this._spawnRoomRevive(room.id)) {
+            st.cleared = false;
+            st.activeWave = true;
+          }
+          st.reviveTimer += ((G.DemoConfig || {}).roomReviveInterval) || 16;
         }
       }
     },
@@ -769,7 +774,13 @@
     _spawnRoomRevive(roomId) {
       const room = this.map.rooms.find(r => r.id === roomId);
       if (!room || room.kind === 'spawn') return false;
-      const count = Math.max(1, Math.ceil((room.waveSize || 3) / 2));
+      const cfg = G.DemoConfig || {};
+      const alive = this._aliveEnemiesInRoom(roomId);
+      const maxAlive = cfg.roomReviveMaxAlive || 6;
+      if (alive >= maxAlive) return false;
+      const desired = Math.max(cfg.roomReviveMinCount || 2, Math.ceil((room.waveSize || 4) * (cfg.roomReviveBatchRatio || 0.5)));
+      const count = Math.min(maxAlive - alive, desired);
+      if (count <= 0) return false;
       for (let i = 0; i < count; i++) this._spawnEnemyInRoom(roomId, room.kind === 'reward' ? 0.3 : 0.12);
       this.toast(G.t('raid.toast.roomRevive'));
       return true;

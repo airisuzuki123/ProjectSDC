@@ -158,6 +158,22 @@ ok('demo room map can generate multiple funded reward rooms', () => {
     if (coinTotal < entry.cost) throw new Error('forced reward room is not funded before entry');
   }
 });
+ok('demo room waves scale by room role and path depth', () => {
+  const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
+  const m = G.MapGen.generate(loc, { demo: true });
+  const mainRooms = m.roomGraph.mainRoomIds.map(id => m.rooms.find(r => r.id === id));
+  const combatRooms = mainRooms.filter(r => r.kind === 'combat');
+  if (!combatRooms.length) throw new Error('no combat rooms generated');
+  for (const r of combatRooms) {
+    const expectedSize = G.DemoConfig.roomWaveBaseCount + Math.min(G.DemoConfig.roomWaveSizeDepthCap, r.pathIndex * G.DemoConfig.roomWaveSizePerDepth);
+    const expectedCount = Math.min(G.DemoConfig.roomWaveCountMax, G.DemoConfig.roomWaveCountBase + Math.floor(r.pathIndex * G.DemoConfig.roomWaveCountPerDepth));
+    if (r.waveSize !== expectedSize) throw new Error('combat room wave size did not scale with depth');
+    if (r.waveCount !== expectedCount) throw new Error('combat room wave count did not scale with depth');
+  }
+  const extractRoom = mainRooms[mainRooms.length - 1];
+  if (extractRoom.waveCount !== G.DemoConfig.roomExtractWaveCount) throw new Error('extract wave count not using config');
+  if (extractRoom.waveSize !== G.DemoConfig.roomExtractWaveSize) throw new Error('extract wave size not using config');
+});
 
 console.log('\n[2] Profile / economy');
 ok('fresh profile loads and starting gear present', () => {
@@ -442,6 +458,14 @@ ok('demo cleared room revive timer spawns more monsters', () => {
   raid._updateRoomCombat(0.1);
   const after = raid.enemies.filter(e => !e.dead && e.room && e.room.id === combat.id).length;
   if (after <= before) throw new Error('revive timer did not spawn monsters');
+  if (st.cleared || !st.activeWave) throw new Error('revived monsters were not treated as an active wave');
+  st.reviveTimer = 0;
+  raid._updateRoomCombat(999);
+  const stacked = raid.enemies.filter(e => !e.dead && e.room && e.room.id === combat.id).length;
+  if (stacked !== after) throw new Error('revive wave stacked before being cleared');
+  for (const e of raid.enemies) if (e.room && e.room.id === combat.id) e.dead = true;
+  raid._updateRoomCombat(0.1);
+  if (!st.cleared) throw new Error('revive wave did not clear after monsters died');
 });
 ok('demo gold is dungeon currency and opens paid portal after standing payment', () => {
   let raid = null, paidPortal = null;
