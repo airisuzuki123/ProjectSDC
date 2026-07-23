@@ -485,6 +485,18 @@ ok('demo curse choice triggers after kill threshold and pauses raid', () => {
   if (opened !== 1) throw new Error('curse overlay was not opened');
   if (raid.dungeon.curseChoices.length !== 3) throw new Error('expected three curse choices');
 });
+ok('demo upgrade choices share skill pool but include a curse', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  raid.dungeon.selectedCurses = G.DemoCurses.slice(1).map(c => c.id);
+  raid.kills = G.DemoConfig.curseKillTriggers[0];
+  raid.update(1 / 60, 800, 600);
+  if (!raid.dungeon.cursePending) throw new Error('upgrade choice did not become pending');
+  if (!raid.dungeon.curseChoices.some(c => c.type === 'curse')) throw new Error('upgrade choices did not include a curse');
+  if (!raid.dungeon.curseChoices.some(c => c.type === 'skill')) throw new Error('upgrade choices did not include skills from shared pool');
+});
 ok('demo curse selection increases reward multiplier', () => {
   const carried = G.Profile.scavKit();
   carried.demo = true;
@@ -523,6 +535,23 @@ ok('demo curse cost effect applies to backpack capacity and speed', () => {
   if (raid.player.backpackLimit() !== G.Config.BACKPACK_SLOTS + 2) throw new Error('backpack bonus not applied');
   if (raid.player.moveSpeedMultiplier >= 1) throw new Error('speed penalty not applied');
 });
+ok('demo skill selection upgrades projectiles without reward multiplier', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const s = G.DemoSkills.find(s => s.id === 'twin_shot');
+  raid.dungeon.curseChoices = [s];
+  raid.dungeon.cursePending = true;
+  raid.paused = true;
+  const before = raid.dungeon.rewardMultiplier;
+  if (!raid.chooseCurse(s.id)) throw new Error('skill choice rejected');
+  if (raid.dungeon.selectedSkills.indexOf(s.id) < 0) throw new Error('selected skill not recorded');
+  if (raid.dungeon.rewardMultiplier !== before) throw new Error('skill changed reward multiplier');
+  raid.player.fireCd = 0;
+  raid.player.angle = 0;
+  raid.player.tryShoot(raid);
+  if (raid.bullets.filter(b => b.owner === 'player').length !== 2) throw new Error('projectile bonus did not add a bullet');
+});
 
 console.log('\n[6] UI screens build without error');
 ok('all UI screens & overlays render', () => {
@@ -548,7 +577,7 @@ ok('all UI screens & overlays render', () => {
   G.UI.openPause(fakeRaid);
   G.UI.openRaidInventory(fakeRaid);
   const demoRaid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
-  demoRaid.dungeon.curseChoices = G.DemoCurses.slice(0, 3);
+  demoRaid.dungeon.curseChoices = G.DemoCurses.slice(0, 2).concat(G.DemoSkills.slice(0, 1));
   demoRaid.dungeon.cursePending = true;
   G.UI.openCurseChoice(demoRaid);
 });

@@ -102,6 +102,29 @@
     },
   ];
 
+  G.DemoSkills = [
+    {
+      id: 'sharp_rounds',
+      type: 'skill',
+      effects: { playerDamageMultiplier: 1.15 },
+    },
+    {
+      id: 'twin_shot',
+      type: 'skill',
+      effects: { playerProjectileBonus: 1 },
+    },
+    {
+      id: 'rapid_focus',
+      type: 'skill',
+      effects: { playerFireRateMultiplier: 1.20 },
+    },
+    {
+      id: 'longshot_charm',
+      type: 'skill',
+      effects: { playerProjectileRangeMultiplier: 1.20 },
+    },
+  ];
+
   /* ------------------------- Item database ------------------------------ */
   // type: weapon | ammo | armor | med | valuable | key
   // rarity: common | uncommon | rare | epic  (affects color/glow)

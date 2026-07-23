@@ -48,6 +48,7 @@
       eliteSpawned: false,
       rewardMultiplier: 1,
       selectedCurses: [],
+      selectedSkills: [],
       curseChoices: [],
       cursePending: false,
       curseTriggers: 0,
@@ -465,9 +466,20 @@
     },
 
     _openCurseChoice() {
-      const all = (G.DemoCurses || []).filter(c => this.dungeon.selectedCurses.indexOf(c.id) < 0);
-      const pool = all.slice();
+      this.dungeon.selectedSkills = this.dungeon.selectedSkills || [];
+      this.dungeon.selectedCurses = this.dungeon.selectedCurses || [];
+      const curses = (G.DemoCurses || [])
+        .map(c => Object.assign({ type: 'curse' }, c))
+        .filter(c => this.dungeon.selectedCurses.indexOf(c.id) < 0);
+      const skills = (G.DemoSkills || [])
+        .map(s => Object.assign({ type: 'skill', rewardBonus: 0 }, s))
+        .filter(s => this.dungeon.selectedSkills.indexOf(s.id) < 0);
       const choices = [];
+      if (curses.length) {
+        const i = U.randInt(0, curses.length - 1);
+        choices.push(curses.splice(i, 1)[0]);
+      }
+      const pool = curses.concat(skills);
       while (pool.length && choices.length < 3) {
         const i = U.randInt(0, pool.length - 1);
         choices.push(pool.splice(i, 1)[0]);
@@ -484,13 +496,15 @@
       if (!this.demo || !this.dungeon || !this.dungeon.cursePending) return false;
       const pick = this.dungeon.curseChoices.find(c => c.id === id);
       if (!pick) return false;
-      this.dungeon.selectedCurses.push(pick.id);
+      if (pick.type === 'skill') this.dungeon.selectedSkills.push(pick.id);
+      else this.dungeon.selectedCurses.push(pick.id);
       this.dungeon.rewardMultiplier = round2(this.dungeon.rewardMultiplier * (1 + (pick.rewardBonus || 0)));
       this.dungeon.curseTriggers++;
       this.dungeon.curseChoices = [];
       this.dungeon.cursePending = false;
       this._recomputeCurseModifiers();
-      this.toast(G.t('raid.toast.curseChosen', { name: G.t('curse.' + pick.id + '.name'), mul: this.dungeon.rewardMultiplier.toFixed(2) }));
+      const ns = pick.type === 'skill' ? 'skill.' : 'curse.';
+      this.toast(G.t('raid.toast.curseChosen', { name: G.t(ns + pick.id + '.name'), mul: this.dungeon.rewardMultiplier.toFixed(2) }));
       Input.resetTouch();
       this.paused = false;
       return true;
@@ -500,8 +514,10 @@
       const d = this.dungeon;
       if (!d) return;
       const m = defaultCurseModifiers();
-      for (const id of d.selectedCurses) {
-        const c = (G.DemoCurses || []).find(x => x.id === id);
+      const selected = (d.selectedCurses || []).map(id => ({ id, pool: G.DemoCurses || [] }))
+        .concat((d.selectedSkills || []).map(id => ({ id, pool: G.DemoSkills || [] })));
+      for (const entry of selected) {
+        const c = entry.pool.find(x => x.id === entry.id);
         const e = c && c.effects;
         if (!e) continue;
         m.searchSpeedMultiplier *= e.searchSpeedMultiplier || 1;
@@ -514,6 +530,8 @@
         m.monsterLevelIntervalDelta += e.monsterLevelIntervalDelta || 0;
         m.playerDamageMultiplier *= e.playerDamageMultiplier || 1;
         m.playerProjectileBonus += e.playerProjectileBonus || 0;
+        m.playerFireRateMultiplier *= e.playerFireRateMultiplier || 1;
+        m.playerProjectileRangeMultiplier *= e.playerProjectileRangeMultiplier || 1;
         m.playerTakenDamageMultiplier *= e.playerTakenDamageMultiplier || 1;
         m.eliteDropMultiplier *= e.eliteDropMultiplier || 1;
         m.eliteSpawnChanceMultiplier *= e.eliteSpawnChanceMultiplier || 1;
@@ -616,6 +634,8 @@
 
     _playerDamageMultiplier() { return this._curseModifier('playerDamageMultiplier', 1); },
     _playerProjectileBonus() { return Math.max(0, Math.round(this._curseModifier('playerProjectileBonus', 0))); },
+    _playerFireRateMultiplier() { return this._curseModifier('playerFireRateMultiplier', 1); },
+    _playerProjectileRangeMultiplier() { return this._curseModifier('playerProjectileRangeMultiplier', 1); },
     _playerTakenDamageMultiplier() { return this._curseModifier('playerTakenDamageMultiplier', 1); },
     _healMultiplier() { return this._curseModifier('healMultiplier', 1); },
 
@@ -1697,6 +1717,8 @@
       monsterLevelIntervalDelta: 0,
       playerDamageMultiplier: 1,
       playerProjectileBonus: 0,
+      playerFireRateMultiplier: 1,
+      playerProjectileRangeMultiplier: 1,
       playerTakenDamageMultiplier: 1,
       eliteDropMultiplier: 1,
       eliteSpawnChanceMultiplier: 1,

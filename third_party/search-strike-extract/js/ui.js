@@ -527,10 +527,14 @@
       wrap.appendChild(h('div', { class: 'curse-sub', text: t('ui.curse.subtitle', { n: d.curseTriggers + 1 }) }));
       const list = h('div', { class: 'curse-list' });
       for (const c of d.curseChoices) {
+        const ns = c.type === 'skill' ? 'skill.' : 'curse.';
+        const foot = c.type === 'skill'
+          ? t('ui.curse.skill')
+          : t('ui.curse.reward', { pct: Math.round((c.rewardBonus || 0) * 100) });
         const btn = h('button', { class: 'curse-card' }, [
-          h('div', { class: 'curse-name', text: t('curse.' + c.id + '.name') }),
-          h('div', { class: 'curse-desc', text: t('curse.' + c.id + '.desc') }),
-          h('div', { class: 'curse-reward', text: t('ui.curse.reward', { pct: Math.round((c.rewardBonus || 0) * 100) }) }),
+          h('div', { class: 'curse-name', text: t(ns + c.id + '.name') }),
+          h('div', { class: 'curse-desc', text: t(ns + c.id + '.desc') }),
+          h('div', { class: 'curse-reward', text: foot }),
         ]);
         btn.addEventListener('click', () => {
           if (raid.chooseCurse(c.id)) this.hideAll();

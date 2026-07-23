@@ -80,7 +80,8 @@
         this.reload();
         return;
       }
-      this.fireCd = def.fireRate / 1000;
+      const fireRateMultiplier = raid && raid._playerFireRateMultiplier ? raid._playerFireRateMultiplier() : 1;
+      this.fireCd = def.fireRate / 1000 / Math.max(0.1, fireRateMultiplier);
       if (!demoUnlimited) w.mag--;
       this.lastShotAt = raid.time;
       const mx = this.x + Math.cos(this.angle) * (this.r + 6);
@@ -93,7 +94,8 @@
       for (let i = 0; i < pellets; i++) {
         const a = this.angle + U.rand(-spread, spread);
         const damage = Math.round(def.damage * (raid && raid._playerDamageMultiplier ? raid._playerDamageMultiplier() : 1));
-        raid.bullets.push(G.makeBullet(mx, my, a, def.bulletSpeed, damage, 'player', { range: def.range, color: '#ffe08a' }));
+        const rangeMultiplier = raid && raid._playerProjectileRangeMultiplier ? raid._playerProjectileRangeMultiplier() : 1;
+        raid.bullets.push(G.makeBullet(mx, my, a, def.bulletSpeed, damage, 'player', { range: def.range * rangeMultiplier, color: '#ffe08a' }));
       }
       this.recoil = Math.min(0.24, this.recoil + def.recoil);
       raid.particles.muzzle(mx, my, this.angle);
