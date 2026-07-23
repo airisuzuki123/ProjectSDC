@@ -41,6 +41,19 @@
     locationId: 'factory',
     scrollItemId: 'd_scroll_fragment',
     requiredFragments: 4,
+    monsterLevelInterval: 45,
+    monsterLevelMax: 6,
+    monsterHpPerLevel: 0.15,
+    monsterDamagePerLevel: 0.10,
+    monsterSpawnInterval: 20,
+    monsterSpawnMinInterval: 9,
+    monsterSpawnLevelReduction: 0.08,
+    monsterSpawnMaxAlive: 18,
+    eliteLevel: 3,
+    enrageTime: 300,
+    enrageHpBonus: 0.60,
+    enrageDamageBonus: 0.40,
+    enrageSpawnIntervalMultiplier: 0.65,
   };
 
   /* ------------------------- Item database ------------------------------ */

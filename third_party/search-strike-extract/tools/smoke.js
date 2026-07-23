@@ -249,6 +249,29 @@ ok('demo scroll fragments enable X normal extract', () => {
   raid.update(1 / 60, 800, 600);
   if (!result || result.outcome !== 'normal_extract') throw new Error('X did not trigger normal extract: ' + (result && result.outcome));
 });
+ok('demo monster pressure levels up and enrages over time', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid._updateDungeonPressure(G.DemoConfig.monsterLevelInterval);
+  if (raid.dungeon.monsterLevel !== 2) throw new Error('monster level did not increase');
+  raid.time = G.DemoConfig.enrageTime;
+  raid._updateDungeonPressure(0.01);
+  if (!raid.dungeon.enraged) throw new Error('enrage did not trigger');
+  if (raid._monsterHpMultiplier() <= 1 || raid._monsterDamageMultiplier() <= 1) throw new Error('pressure multipliers not applied');
+});
+ok('demo pressure spawns reinforcements with scaled stats', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  raid.dungeon.monsterLevel = 3;
+  raid.dungeon.spawnTimer = 0;
+  raid._updateDungeonPressure(0.01);
+  if (raid.enemies.length < 1) throw new Error('pressure spawn did not add an enemy');
+  const e = raid.enemies[0];
+  if (e.maxHp <= G.EnemyTiers[e.tier].hp) throw new Error('spawned enemy hp was not scaled');
+});
 
 console.log('\n[6] UI screens build without error');
 ok('all UI screens & overlays render', () => {

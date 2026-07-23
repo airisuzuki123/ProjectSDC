@@ -40,6 +40,11 @@
     this.dungeon = this.demo ? {
       scrollFragments: 0,
       requiredFragments: (G.DemoConfig && G.DemoConfig.requiredFragments) || 4,
+      monsterLevel: 1,
+      monsterLevelTimer: 0,
+      spawnTimer: (G.DemoConfig && G.DemoConfig.monsterSpawnInterval) || 20,
+      enraged: false,
+      eliteSpawned: false,
     } : null;
     this.visited = new Uint8Array(this.map.w * this.map.h);
     this._footT = 0;
@@ -81,7 +86,17 @@
     },
 
     _spawnEnemies() {
-      for (const s of this.map.enemySpawns) this.enemies.push(new G.Enemy(s));
+      for (const s of this.map.enemySpawns) this._spawnEnemyFromPoint(s);
+    },
+
+    _spawnEnemyFromPoint(spawn, tierOverride) {
+      const tier = tierOverride || spawn.tier;
+      const s = Object.assign({}, spawn, {
+        tier,
+        hpMultiplier: this._monsterHpMultiplier(),
+        damageMultiplier: this._monsterDamageMultiplier(),
+      });
+      this.enemies.push(new G.Enemy(s));
     },
 
     // Pre-render the static world (floor/walls/grid) and prepare the incremental
@@ -135,6 +150,7 @@
       dt = Math.min(dt, 0.05);
       this.time += dt;
       this.timeLeft -= dt;
+      this._updateDungeonPressure(dt);
 
       this._nearestCont = this._nearestContainer();
       this._handleInput(dt);
@@ -354,6 +370,79 @@
     _scrollParams() {
       const d = this.dungeon || { scrollFragments: 0, requiredFragments: 0 };
       return { n: d.scrollFragments, total: d.requiredFragments };
+    },
+
+    _updateDungeonPressure(dt) {
+      if (!this.demo || !this.dungeon) return;
+      const cfg = G.DemoConfig || {};
+      const d = this.dungeon;
+      const interval = cfg.monsterLevelInterval || 45;
+      const maxLevel = cfg.monsterLevelMax || 6;
+      d.monsterLevelTimer += dt;
+      while (d.monsterLevelTimer >= interval && d.monsterLevel < maxLevel) {
+        d.monsterLevelTimer -= interval;
+        d.monsterLevel++;
+        this.toast(G.t('raid.toast.monsterLevel', { n: d.monsterLevel }));
+      }
+
+      if (!d.enraged && this.time >= (cfg.enrageTime || 300)) {
+        d.enraged = true;
+        this.toast(G.t('raid.toast.enraged'));
+      }
+
+      if (!d.eliteSpawned && d.monsterLevel >= (cfg.eliteLevel || 3)) {
+        this._spawnPressureEnemy('raider');
+        d.eliteSpawned = true;
+        this.toast(G.t('raid.toast.eliteSpawned'));
+      }
+
+      d.spawnTimer -= dt;
+      while (d.spawnTimer <= 0) {
+        this._spawnPressureEnemy();
+        d.spawnTimer += this._monsterSpawnInterval();
+      }
+    },
+
+    _spawnPressureEnemy(tierOverride) {
+      if (!this.map.enemySpawns || !this.map.enemySpawns.length) return false;
+      const cfg = G.DemoConfig || {};
+      const alive = this.enemies.filter(e => !e.dead).length;
+      if (alive >= (cfg.monsterSpawnMaxAlive || 18)) return false;
+      const src = U.choice(this.map.enemySpawns);
+      let tier = tierOverride || 'scav';
+      if (!tierOverride) {
+        const level = this.dungeon ? this.dungeon.monsterLevel : 1;
+        const eliteChance = (this.dungeon && this.dungeon.enraged) ? 0.5 : (level >= 4 ? 0.35 : level >= 3 ? 0.2 : 0);
+        tier = U.chance(eliteChance) ? 'raider' : 'scav';
+      }
+      this._spawnEnemyFromPoint(src, tier);
+      return true;
+    },
+
+    _monsterHpMultiplier() {
+      if (!this.demo || !this.dungeon) return 1;
+      const cfg = G.DemoConfig || {};
+      const levelBonus = Math.max(0, this.dungeon.monsterLevel - 1) * (cfg.monsterHpPerLevel || 0);
+      const enrageBonus = this.dungeon.enraged ? (cfg.enrageHpBonus || 0) : 0;
+      return 1 + levelBonus + enrageBonus;
+    },
+
+    _monsterDamageMultiplier() {
+      if (!this.demo || !this.dungeon) return 1;
+      const cfg = G.DemoConfig || {};
+      const levelBonus = Math.max(0, this.dungeon.monsterLevel - 1) * (cfg.monsterDamagePerLevel || 0);
+      const enrageBonus = this.dungeon.enraged ? (cfg.enrageDamageBonus || 0) : 0;
+      return 1 + levelBonus + enrageBonus;
+    },
+
+    _monsterSpawnInterval() {
+      const cfg = G.DemoConfig || {};
+      const base = cfg.monsterSpawnInterval || 20;
+      const min = cfg.monsterSpawnMinInterval || 9;
+      const level = this.dungeon ? this.dungeon.monsterLevel : 1;
+      let interval = base * Math.pow(1 - (cfg.monsterSpawnLevelReduction || 0), Math.max(0, level - 1));
+      if (this.dungeon && this.dungeon.enraged) interval *= (cfg.enrageSpawnIntervalMultiplier || 1);
+      return Math.max(min, interval);
     },
 
     // Drain any auto-equip notifications queued by Player.addLoot during a pickup.
@@ -721,6 +810,9 @@
       if (this.demo && this.dungeon) {
         ctx.fillStyle = this._canNormalExtract() ? '#8fd6ff' : 'rgba(255,255,255,0.68)';
         ctx.fillText(G.t('raid.hud.scrolls', this._scrollParams()), rightX, topY + 50);
+        ctx.fillStyle = this.dungeon.enraged ? '#ff7b5a' : 'rgba(255,255,255,0.68)';
+        ctx.fillText(G.t('raid.hud.monsterLevel', { n: this.dungeon.monsterLevel }), rightX, topY + 66);
+        if (this.dungeon.enraged) ctx.fillText(G.t('raid.hud.enraged'), rightX, topY + 82);
       }
 
       // ---- weapon panel + carried-item quick bar (bottom center-left) ----

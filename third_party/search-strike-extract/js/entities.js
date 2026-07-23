@@ -320,7 +320,8 @@
     this.tier = spawn.tier; this.def = tier;
     this.x = spawn.x; this.y = spawn.y;
     this.r = C.ENEMY_RADIUS;
-    this.hp = tier.hp; this.maxHp = tier.hp;
+    this.hp = Math.round(tier.hp * (spawn.hpMultiplier || 1)); this.maxHp = this.hp;
+    this.damageMultiplier = spawn.damageMultiplier || 1;
     this.angle = Math.random() * U.TAU;
     this.color = tier.color;
     this.accuracy = tier.accuracy;
@@ -534,7 +535,7 @@
       const pellets = def.pellets || 1;
       for (let i = 0; i < pellets; i++) {
         const a = this.angle + U.rand(-spread, spread);
-        raid.bullets.push(G.makeBullet(mx, my, a, def.bulletSpeed * 0.85, def.damage, 'enemy', { range: def.range, color: '#ff7b5a' }));
+        raid.bullets.push(G.makeBullet(mx, my, a, def.bulletSpeed * 0.85, Math.round(def.damage * this.damageMultiplier), 'enemy', { range: def.range, color: '#ff7b5a' }));
       }
       raid.particles.muzzle(mx, my, this.angle);
       G.Audio.play('enemy_shoot', { vol: U.clamp(1 - d / 900, 0.15, 0.6) });
