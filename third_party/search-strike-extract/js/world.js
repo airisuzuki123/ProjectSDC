@@ -378,45 +378,72 @@
     const rng = G.RNG(seed);
     const T = Config.TILE;
     const cfg = G.DemoConfig || {};
-    const roomW = 9, roomH = 7, gap = 2, margin = 2;
-    const mainCount = rng.int(4, 5);
-    const hasReward = rng.chance(0.65);
-    const baseCells = [
-      { gx: 0, gy: 0 },
-      { gx: 1, gy: 0 },
-      { gx: 2, gy: 0 },
-      { gx: 2, gy: 1 },
-      { gx: 1, gy: 1 },
-    ];
+    const roomW = cfg.roomTileW || 8, roomH = cfg.roomTileH || 7, gap = cfg.roomGap || 2, margin = 2;
+    const mainCount = rng.int(cfg.roomMainPathMin || 4, cfg.roomMainPathMax || 5);
+    const rewardMax = cfg.roomRewardMax || 2;
+    const rewardChance = cfg.roomRewardChance == null ? 0.7 : cfg.roomRewardChance;
+    const vertical = rng.chance(0.5);
     const roomCells = [];
     for (let i = 0; i < mainCount; i++) {
-      const c = baseCells[i];
-      roomCells.push({ gx: c.gx, gy: c.gy, kind: i === 0 ? 'spawn' : i === mainCount - 1 ? 'extract' : 'combat', pathIndex: i, main: true });
-    }
-    let rewardCell = null;
-    if (hasReward && mainCount > 2) {
-      const occupiedCells = new Set(roomCells.map(c => c.gx + ',' + c.gy));
-      const anchorIndex = rng.int(1, mainCount - 2);
-      const anchor = roomCells[anchorIndex];
-      const candidates = [
-        { gx: anchor.gx, gy: anchor.gy + 1 },
-        { gx: anchor.gx, gy: anchor.gy - 1 },
-        { gx: anchor.gx - 1, gy: anchor.gy },
-        { gx: anchor.gx + 1, gy: anchor.gy },
-      ].filter(c => !occupiedCells.has(c.gx + ',' + c.gy));
-      candidates.sort((a, b) => {
-        const score = (c) => {
-          const xs = roomCells.map(r => r.gx).concat(c.gx);
-          const ys = roomCells.map(r => r.gy).concat(c.gy);
-          const cols = Math.max.apply(null, xs) - Math.min.apply(null, xs) + 1;
-          const rows = Math.max.apply(null, ys) - Math.min.apply(null, ys) + 1;
-          return cols * 100 + rows;
-        };
-        return score(a) - score(b);
+      roomCells.push({
+        gx: vertical ? 0 : i,
+        gy: vertical ? i : 0,
+        kind: i === 0 ? 'spawn' : i === mainCount - 1 ? 'extract' : 'combat',
+        pathIndex: i,
+        main: true,
       });
-      const picked = candidates.length ? candidates[0] : { gx: anchor.gx, gy: anchor.gy + 1 };
-      rewardCell = { gx: picked.gx, gy: picked.gy, kind: 'reward', pathIndex: anchor.pathIndex, main: false, anchorIndex };
-      roomCells.push(rewardCell);
+    }
+    const rewardCells = [];
+    if (mainCount > 2) {
+      const anchorIndexes = [];
+      for (let i = 1; i < mainCount - 1; i++) anchorIndexes.push(i);
+      for (let i = anchorIndexes.length - 1; i > 0; i--) {
+        const j = rng.int(0, i);
+        const tmp = anchorIndexes[i]; anchorIndexes[i] = anchorIndexes[j]; anchorIndexes[j] = tmp;
+      }
+      const occupiedCells = new Set(roomCells.map(c => c.gx + ',' + c.gy));
+      for (const anchorIndex of anchorIndexes) {
+        if (rewardCells.length >= rewardMax) break;
+        if (!rng.chance(rewardChance)) continue;
+        const anchor = roomCells[anchorIndex];
+        const candidates = vertical
+          ? [{ gx: anchor.gx + 1, gy: anchor.gy }, { gx: anchor.gx - 1, gy: anchor.gy }]
+          : [{ gx: anchor.gx, gy: anchor.gy + 1 }, { gx: anchor.gx, gy: anchor.gy - 1 }];
+        const open = candidates.filter(c => !occupiedCells.has(c.gx + ',' + c.gy));
+        if (!open.length) continue;
+        const picked = rng.choice(open);
+        occupiedCells.add(picked.gx + ',' + picked.gy);
+        const rewardCell = { gx: picked.gx, gy: picked.gy, kind: 'reward', pathIndex: anchor.pathIndex, main: false, anchorIndex };
+        rewardCells.push(rewardCell);
+        roomCells.push(rewardCell);
+      }
+      if (!rewardCells.length && rng.chance(rewardChance)) {
+        const occupiedCells = new Set(roomCells.map(c => c.gx + ',' + c.gy));
+        const anchorIndex = rng.int(1, mainCount - 2);
+        const anchor = roomCells[anchorIndex];
+        const candidates = [
+          { gx: anchor.gx, gy: anchor.gy + 1 },
+          { gx: anchor.gx, gy: anchor.gy - 1 },
+          { gx: anchor.gx - 1, gy: anchor.gy },
+          { gx: anchor.gx + 1, gy: anchor.gy },
+        ].filter(c => !occupiedCells.has(c.gx + ',' + c.gy));
+        candidates.sort((a, b) => {
+          const score = (c) => {
+            const xs = roomCells.map(r => r.gx).concat(c.gx);
+            const ys = roomCells.map(r => r.gy).concat(c.gy);
+            const cols = Math.max.apply(null, xs) - Math.min.apply(null, xs) + 1;
+            const rows = Math.max.apply(null, ys) - Math.min.apply(null, ys) + 1;
+            return cols * 100 + rows;
+          };
+          return score(a) - score(b);
+        });
+        if (candidates.length) {
+          const picked = candidates[0];
+          const rewardCell = { gx: picked.gx, gy: picked.gy, kind: 'reward', pathIndex: anchor.pathIndex, main: false, anchorIndex };
+          rewardCells.push(rewardCell);
+          roomCells.push(rewardCell);
+        }
+      }
     }
     const minGX = Math.min.apply(null, roomCells.map(c => c.gx));
     const minGY = Math.min.apply(null, roomCells.map(c => c.gy));
@@ -446,7 +473,7 @@
         gx: cell.gx, gy: cell.gy,
         cx: x + Math.floor(roomW / 2),
         cy: y + Math.floor(roomH / 2),
-        kind: cell.kind, pathIndex: cell.pathIndex,
+        kind: cell.kind, pathIndex: cell.pathIndex, main: !!cell.main,
         waveCount: cell.kind === 'spawn' ? 0 : cell.kind === 'reward' ? 2 : cell.kind === 'extract' ? 2 : 1 + Math.min(2, cell.pathIndex),
         waveSize: cell.kind === 'spawn' ? 0 : cell.kind === 'reward' ? 4 : cell.kind === 'extract' ? 5 : (cfg.roomWaveBaseCount || 3) + Math.min(3, cell.pathIndex),
       };
@@ -456,15 +483,16 @@
     };
 
     const mainRooms = roomCells.filter(c => c.main).map(c => addRoom(c));
-    let rewardRoom = null;
-    if (rewardCell) {
-      rewardRoom = addRoom(rewardCell);
+    const rewardRooms = [];
+    for (const rewardCell of rewardCells) {
+      const rewardRoom = addRoom(rewardCell);
       rewardRoom.anchorRoomId = mainRooms[rewardCell.anchorIndex].id;
+      rewardRooms.push(rewardRoom);
     }
 
     for (let i = 0; i < grid.length; i++) if (grid[i] === 0) shade[i] = (rng() * 4) | 0;
 
-    let rewardEntryCost = 0;
+    const rewardEntryCosts = {};
     const portalEdge = (from, to) => {
       const dx = to.gx - from.gx, dy = to.gy - from.gy;
       if (Math.abs(dx) >= Math.abs(dy)) return dx > 0
@@ -493,9 +521,10 @@
       addPortal(a, b, portalEdge(a, b));
       addPortal(b, a, portalEdge(b, a));
     }
-    if (rewardRoom) {
+    for (const rewardRoom of rewardRooms) {
       const anchor = mainRooms.find(r => r.id === rewardRoom.anchorRoomId);
-      rewardEntryCost = (cfg.coinPortalBaseCost || 3) + Math.max(0, anchor.pathIndex - 1);
+      const rewardEntryCost = (cfg.coinPortalBaseCost || 3) + Math.max(0, anchor.pathIndex - 1);
+      rewardEntryCosts[rewardRoom.id] = rewardEntryCost;
       addPortal(anchor, rewardRoom, portalEdge(anchor, rewardRoom), { kind: 'gold', cost: rewardEntryCost });
       addPortal(rewardRoom, anchor, portalEdge(rewardRoom, anchor));
     }
@@ -512,9 +541,11 @@
       color: loc.color, location: loc,
       containers: [], enemySpawns: [],
       roomGraph: {
-        layout: 'compact_snake',
+        layout: 'isaac_chain',
+        orientation: vertical ? 'vertical' : 'horizontal',
         mainRoomIds: mainRooms.map(r => r.id),
-        rewardRoomId: rewardRoom && rewardRoom.id,
+        rewardRoomId: rewardRooms[0] && rewardRooms[0].id,
+        rewardRoomIds: rewardRooms.map(r => r.id),
         extractRoomId: extractRoom.id,
       },
     };
@@ -548,7 +579,9 @@
         if (rng.chance(0.35)) placeAtRoom(r, 'medbox');
       }
     }
-    if (rewardRoom && rewardEntryCost > 0) {
+    for (const rewardRoom of rewardRooms) {
+      const rewardEntryCost = rewardEntryCosts[rewardRoom.id] || 0;
+      if (rewardEntryCost <= 0) continue;
       const anchor = mainRooms.find(r => r.id === rewardRoom.anchorRoomId);
       const before = mainRooms.filter(r => r.pathIndex <= anchor.pathIndex);
       let remaining = rewardEntryCost;

@@ -105,26 +105,57 @@ ok('demo room map generates a short main path with portals', () => {
   for (let i = 0; i < 8; i++) {
     const m = G.MapGen.generate(loc, { demo: true });
     if (!m.roomGraph) throw new Error('no room graph');
-    if (m.roomGraph.layout !== 'compact_snake') throw new Error('demo room layout is not compact snake');
+    if (m.roomGraph.layout !== 'isaac_chain') throw new Error('demo room layout is not isaac chain');
     if (m.roomGraph.mainRoomIds.length < 4 || m.roomGraph.mainRoomIds.length > 5) throw new Error('main path room count out of range');
     if (!m.portals || m.portals.length < (m.roomGraph.mainRoomIds.length - 1) * 2) throw new Error('not enough portals');
     if (m.pxW * m.pxH >= loc.gridW * loc.gridH * G.Config.TILE * G.Config.TILE) throw new Error('demo room map not smaller than base location');
-    if (m.rooms.some(r => r.w > 9 || r.h > 7)) throw new Error('demo rooms are too large');
-    if (m.w > 42 || m.h > 30) throw new Error('demo room map bounds are not compact');
+    if (m.rooms.some(r => r.w > G.DemoConfig.roomTileW || r.h > G.DemoConfig.roomTileH)) throw new Error('demo rooms are too large');
+    if (Math.max(m.w, m.h) > 54 || Math.min(m.w, m.h) > 34) throw new Error('demo room map bounds are not compact');
     const spawnRoom = m.rooms.find(r => r.kind === 'spawn');
     const extractRoom = m.rooms.find(r => r.kind === 'extract');
     if (!spawnRoom || !extractRoom) throw new Error('missing spawn/extract room');
     if (!m.extracts.length || m.extracts[0].roomId !== extractRoom.id) throw new Error('extract not placed in extract room');
     for (let j = 0; j < m.roomGraph.mainRoomIds.length - 1; j++) {
       const a = m.roomGraph.mainRoomIds[j], b = m.roomGraph.mainRoomIds[j + 1];
+      const ra = m.rooms.find(r => r.id === a), rb = m.rooms.find(r => r.id === b);
+      if (Math.abs(ra.gx - rb.gx) + Math.abs(ra.gy - rb.gy) !== 1) throw new Error('main path rooms are not adjacent');
       if (!m.portals.some(p => p.fromRoomId === a && p.toRoomId === b)) throw new Error('main path missing forward portal');
       if (!m.portals.some(p => p.fromRoomId === b && p.toRoomId === a)) throw new Error('main path missing return portal');
     }
-    if (m.roomGraph.rewardRoomId) {
-      const reward = m.rooms.find(r => r.id === m.roomGraph.rewardRoomId);
+    if ((m.roomGraph.rewardRoomIds || []).length > G.DemoConfig.roomRewardMax) throw new Error('too many reward rooms');
+    for (const rid of m.roomGraph.rewardRoomIds || []) {
+      const reward = m.rooms.find(r => r.id === rid);
       if (!reward || reward.kind !== 'reward') throw new Error('reward room graph points to wrong room');
       if (!m.portals.some(p => p.kind === 'gold' && p.toRoomId === reward.id)) throw new Error('reward room missing gold entry portal');
+      const entry = m.portals.find(p => p.kind === 'gold' && p.toRoomId === reward.id);
+      const anchor = m.rooms.find(r => r.id === entry.fromRoomId);
+      const beforeIds = new Set(m.rooms.filter(r => r.main !== false && r.pathIndex <= anchor.pathIndex).map(r => r.id));
+      const coinTotal = m.containers
+        .filter(c => beforeIds.has(c.roomId))
+        .reduce((sum, c) => sum + c.items.filter(it => it.id === G.DemoConfig.coinItemId).reduce((s, it) => s + it.n, 0), 0);
+      if (coinTotal < entry.cost) throw new Error('gold portal cost is not funded before entry');
     }
+  }
+});
+ok('demo room map can generate multiple funded reward rooms', () => {
+  const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
+  const oldChance = G.DemoConfig.roomRewardChance;
+  const oldMax = G.DemoConfig.roomRewardMax;
+  G.DemoConfig.roomRewardChance = 1;
+  G.DemoConfig.roomRewardMax = 2;
+  const m = G.MapGen.generate(loc, { demo: true });
+  G.DemoConfig.roomRewardChance = oldChance;
+  G.DemoConfig.roomRewardMax = oldMax;
+  if ((m.roomGraph.rewardRoomIds || []).length !== 2) throw new Error('forced map did not generate two reward rooms');
+  for (const rid of m.roomGraph.rewardRoomIds) {
+    const entry = m.portals.find(p => p.kind === 'gold' && p.toRoomId === rid);
+    if (!entry) throw new Error('reward room missing paid entry');
+    const anchor = m.rooms.find(r => r.id === entry.fromRoomId);
+    const beforeIds = new Set(m.rooms.filter(r => r.main && r.pathIndex <= anchor.pathIndex).map(r => r.id));
+    const coinTotal = m.containers
+      .filter(c => beforeIds.has(c.roomId))
+      .reduce((sum, c) => sum + c.items.filter(it => it.id === G.DemoConfig.coinItemId).reduce((s, it) => s + it.n, 0), 0);
+    if (coinTotal < entry.cost) throw new Error('forced reward room is not funded before entry');
   }
 });
 
