@@ -378,11 +378,53 @@
     const rng = G.RNG(seed);
     const T = Config.TILE;
     const cfg = G.DemoConfig || {};
-    const roomW = 10, roomH = 8, gap = 4, margin = 3;
+    const roomW = 9, roomH = 7, gap = 2, margin = 2;
     const mainCount = rng.int(4, 5);
     const hasReward = rng.chance(0.65);
-    const W = margin * 2 + mainCount * roomW + (mainCount - 1) * gap;
-    const H = margin * 2 + roomH * (hasReward ? 2 : 1) + (hasReward ? gap : 0);
+    const baseCells = [
+      { gx: 0, gy: 0 },
+      { gx: 1, gy: 0 },
+      { gx: 2, gy: 0 },
+      { gx: 2, gy: 1 },
+      { gx: 1, gy: 1 },
+    ];
+    const roomCells = [];
+    for (let i = 0; i < mainCount; i++) {
+      const c = baseCells[i];
+      roomCells.push({ gx: c.gx, gy: c.gy, kind: i === 0 ? 'spawn' : i === mainCount - 1 ? 'extract' : 'combat', pathIndex: i, main: true });
+    }
+    let rewardCell = null;
+    if (hasReward && mainCount > 2) {
+      const occupiedCells = new Set(roomCells.map(c => c.gx + ',' + c.gy));
+      const anchorIndex = rng.int(1, mainCount - 2);
+      const anchor = roomCells[anchorIndex];
+      const candidates = [
+        { gx: anchor.gx, gy: anchor.gy + 1 },
+        { gx: anchor.gx, gy: anchor.gy - 1 },
+        { gx: anchor.gx - 1, gy: anchor.gy },
+        { gx: anchor.gx + 1, gy: anchor.gy },
+      ].filter(c => !occupiedCells.has(c.gx + ',' + c.gy));
+      candidates.sort((a, b) => {
+        const score = (c) => {
+          const xs = roomCells.map(r => r.gx).concat(c.gx);
+          const ys = roomCells.map(r => r.gy).concat(c.gy);
+          const cols = Math.max.apply(null, xs) - Math.min.apply(null, xs) + 1;
+          const rows = Math.max.apply(null, ys) - Math.min.apply(null, ys) + 1;
+          return cols * 100 + rows;
+        };
+        return score(a) - score(b);
+      });
+      const picked = candidates.length ? candidates[0] : { gx: anchor.gx, gy: anchor.gy + 1 };
+      rewardCell = { gx: picked.gx, gy: picked.gy, kind: 'reward', pathIndex: anchor.pathIndex, main: false, anchorIndex };
+      roomCells.push(rewardCell);
+    }
+    const minGX = Math.min.apply(null, roomCells.map(c => c.gx));
+    const minGY = Math.min.apply(null, roomCells.map(c => c.gy));
+    for (const c of roomCells) { c.gx -= minGX; c.gy -= minGY; }
+    const cols = Math.max.apply(null, roomCells.map(c => c.gx)) + 1;
+    const rows = Math.max.apply(null, roomCells.map(c => c.gy)) + 1;
+    const W = margin * 2 + cols * roomW + Math.max(0, cols - 1) * gap;
+    const H = margin * 2 + rows * roomH + Math.max(0, rows - 1) * gap;
     const grid = new Uint8Array(W * H).fill(1);
     const shade = new Uint8Array(W * H);
     const idx = (x, y) => y * W + x;
@@ -395,45 +437,52 @@
           if (i > 0 && j > 0 && i < W - 1 && j < H - 1) grid[idx(i, j)] = 0;
     };
     const centerOf = (r) => map_tileCenter(r.cx, r.cy, T);
-    const addRoom = (x, y, kind, pathIndex) => {
+    const addRoom = (cell) => {
+      const x = margin + cell.gx * (roomW + gap);
+      const y = margin + cell.gy * (roomH + gap);
       const r = {
         id: 'room_' + rooms.length,
         x, y, w: roomW, h: roomH,
+        gx: cell.gx, gy: cell.gy,
         cx: x + Math.floor(roomW / 2),
         cy: y + Math.floor(roomH / 2),
-        kind, pathIndex,
-        waveCount: kind === 'spawn' ? 0 : kind === 'reward' ? 2 : kind === 'extract' ? 2 : 1 + Math.min(2, pathIndex),
-        waveSize: kind === 'spawn' ? 0 : kind === 'reward' ? 4 : kind === 'extract' ? 5 : (cfg.roomWaveBaseCount || 3) + Math.min(3, pathIndex),
+        kind: cell.kind, pathIndex: cell.pathIndex,
+        waveCount: cell.kind === 'spawn' ? 0 : cell.kind === 'reward' ? 2 : cell.kind === 'extract' ? 2 : 1 + Math.min(2, cell.pathIndex),
+        waveSize: cell.kind === 'spawn' ? 0 : cell.kind === 'reward' ? 4 : cell.kind === 'extract' ? 5 : (cfg.roomWaveBaseCount || 3) + Math.min(3, cell.pathIndex),
       };
       carveRect(r.x, r.y, r.w, r.h);
       rooms.push(r);
       return r;
     };
 
-    const mainRooms = [];
-    for (let i = 0; i < mainCount; i++) {
-      mainRooms.push(addRoom(margin + i * (roomW + gap), margin, i === 0 ? 'spawn' : i === mainCount - 1 ? 'extract' : 'combat', i));
-    }
+    const mainRooms = roomCells.filter(c => c.main).map(c => addRoom(c));
     let rewardRoom = null;
-    if (hasReward && mainRooms.length > 2) {
-      const anchorIndex = rng.int(1, mainRooms.length - 2);
-      const anchor = mainRooms[anchorIndex];
-      rewardRoom = addRoom(anchor.x, margin + roomH + gap, 'reward', anchor.pathIndex);
-      rewardRoom.anchorRoomId = anchor.id;
+    if (rewardCell) {
+      rewardRoom = addRoom(rewardCell);
+      rewardRoom.anchorRoomId = mainRooms[rewardCell.anchorIndex].id;
     }
 
     for (let i = 0; i < grid.length; i++) if (grid[i] === 0) shade[i] = (rng() * 4) | 0;
 
     let rewardEntryCost = 0;
-    const addPortal = (from, to, tx, ty, dir, opts) => {
+    const portalEdge = (from, to) => {
+      const dx = to.gx - from.gx, dy = to.gy - from.gy;
+      if (Math.abs(dx) >= Math.abs(dy)) return dx > 0
+        ? { tx: from.x + from.w - 1, ty: from.cy, dir: 'east' }
+        : { tx: from.x, ty: from.cy, dir: 'west' };
+      return dy > 0
+        ? { tx: from.cx, ty: from.y + from.h - 1, dir: 'south' }
+        : { tx: from.cx, ty: from.y, dir: 'north' };
+    };
+    const addPortal = (from, to, edge, opts) => {
       opts = opts || {};
-      const c = map_tileCenter(tx, ty, T);
+      const c = map_tileCenter(edge.tx, edge.ty, T);
       portals.push({
         id: 'portal_' + portals.length,
-        x: c.x, y: c.y, tx, ty, r: T * 0.55,
+        x: c.x, y: c.y, tx: edge.tx, ty: edge.ty, r: T * 0.55,
         fromRoomId: from.id,
         toRoomId: to.id,
-        dir,
+        dir: edge.dir,
         kind: opts.kind || 'normal',
         cost: opts.cost || 0,
         paid: 0,
@@ -441,14 +490,14 @@
     };
     for (let i = 0; i < mainRooms.length - 1; i++) {
       const a = mainRooms[i], b = mainRooms[i + 1];
-      addPortal(a, b, a.x + a.w - 1, a.cy, 'east');
-      addPortal(b, a, b.x, b.cy, 'west');
+      addPortal(a, b, portalEdge(a, b));
+      addPortal(b, a, portalEdge(b, a));
     }
     if (rewardRoom) {
       const anchor = mainRooms.find(r => r.id === rewardRoom.anchorRoomId);
       rewardEntryCost = (cfg.coinPortalBaseCost || 3) + Math.max(0, anchor.pathIndex - 1);
-      addPortal(anchor, rewardRoom, anchor.cx, anchor.y + anchor.h - 1, 'south', { kind: 'gold', cost: rewardEntryCost });
-      addPortal(rewardRoom, anchor, rewardRoom.cx, rewardRoom.y, 'north');
+      addPortal(anchor, rewardRoom, portalEdge(anchor, rewardRoom), { kind: 'gold', cost: rewardEntryCost });
+      addPortal(rewardRoom, anchor, portalEdge(rewardRoom, anchor));
     }
 
     const spawnRoom = mainRooms[0];
@@ -462,7 +511,12 @@
       grid, shade, rooms, portals, extracts, playerSpawn: playerCenter,
       color: loc.color, location: loc,
       containers: [], enemySpawns: [],
-      roomGraph: { mainRoomIds: mainRooms.map(r => r.id), rewardRoomId: rewardRoom && rewardRoom.id, extractRoomId: extractRoom.id },
+      roomGraph: {
+        layout: 'compact_snake',
+        mainRoomIds: mainRooms.map(r => r.id),
+        rewardRoomId: rewardRoom && rewardRoom.id,
+        extractRoomId: extractRoom.id,
+      },
     };
     attachMapMethods(map);
 
