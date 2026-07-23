@@ -102,7 +102,7 @@
         if (!self.keys.has(k)) self._pressed.add(k);
         self.keys.add(k);
         // map key -> action edges handled in update()
-        if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'tab'].includes(k)) e.preventDefault();
+        if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'tab', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'].includes(k)) e.preventDefault();
       });
       window.addEventListener('keyup', (e) => { self.keys.delete(self._normKey(e)); });
       window.addEventListener('blur', () => { self.keys.clear(); });

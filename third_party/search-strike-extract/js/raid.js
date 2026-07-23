@@ -15,6 +15,9 @@
     r: 'reload', h: 'heal', q: 'swap', tab: 'inv', escape: 'pause',
     '1': 'slot0', '2': 'slot1', '3': 'slot2', '4': 'slot3',
     e: 'interact', ' ': 'interact', x: 'normalExtract',
+    f1: 'debugToggle', f2: 'debugScroll', f3: 'debugGold', f4: 'debugChoice',
+    f5: 'debugExtract', f6: 'debugClearRoom', f7: 'debugNormalExtract',
+    f8: 'debugPerfectExtract', f9: 'debugDeath',
   };
 
   function Raid(location, carried) {
@@ -203,6 +206,7 @@
       const p = this.player, map = this.map;
       // discrete actions from keys + buttons
       Input.queueKeyActions(KEY_ACTIONS);
+      if (this._handleDemoDebugActions()) return;
       if (Input.consumeAction('reload') && !this.demo) p.reload();
       if (Input.consumeAction('heal')) p.useMed(this);
       if (Input.consumeAction('swap')) p.swapWeapon(this);
@@ -270,6 +274,78 @@
       // shot are resolved in _aimAndFire, AFTER the camera settles this frame, so
       // the bullet lines up with the on-screen crosshair.
       if (!this.demo && Input.firing() && p.searching) { p.searching = null; this.toast(G.t('raid.toast.searchInterrupted')); }
+    },
+
+    _handleDemoDebugActions() {
+      if (!this.demo || !this.dungeon) return false;
+      const d = this.dungeon;
+      if (Input.consumeAction('debugToggle')) {
+        d.debugVisible = !d.debugVisible;
+        this.toast(G.t(d.debugVisible ? 'raid.debug.visible' : 'raid.debug.hidden'));
+        return false;
+      }
+      if (Input.consumeAction('debugScroll')) {
+        this._collectDungeonItem((G.DemoConfig && G.DemoConfig.scrollItemId) || 'd_scroll_fragment', 1);
+        return false;
+      }
+      if (Input.consumeAction('debugGold')) {
+        this._collectDungeonItem((G.DemoConfig && G.DemoConfig.coinItemId) || 'd_gold_coin', 5);
+        return false;
+      }
+      if (Input.consumeAction('debugChoice')) {
+        if (!d.cursePending) this._openCurseChoice();
+        return true;
+      }
+      if (Input.consumeAction('debugExtract')) {
+        this._debugTeleportExtract();
+        return false;
+      }
+      if (Input.consumeAction('debugClearRoom')) {
+        this._debugClearCurrentRoom();
+        return false;
+      }
+      if (Input.consumeAction('debugNormalExtract')) {
+        d.scrollFragments = d.requiredFragments;
+        this._finish('normal_extract');
+        return true;
+      }
+      if (Input.consumeAction('debugPerfectExtract')) {
+        this._finish('perfect_extract');
+        return true;
+      }
+      if (Input.consumeAction('debugDeath')) {
+        this.player.takeDamage(99999, this, this.player.x + 12, this.player.y);
+        return false;
+      }
+      return false;
+    },
+
+    _debugTeleportExtract() {
+      const z = this.map.extracts && this.map.extracts[0];
+      if (!z) return false;
+      this.player.x = z.x; this.player.y = z.y;
+      this.player.cancelActions();
+      const room = z.roomId && this.map.rooms ? this.map.rooms.find(r => r.id === z.roomId) : this._roomAt(z.x, z.y);
+      if (room) {
+        this.dungeon.currentRoomId = room.id;
+        this._enterRoom(room);
+      }
+      this.cam.x = this.player.x; this.cam.y = this.player.y;
+      this.toast(G.t('raid.debug.teleportExtract'));
+      return true;
+    },
+
+    _debugClearCurrentRoom() {
+      const room = this._roomAt(this.player.x, this.player.y);
+      if (!room) return false;
+      for (const e of this.enemies) if (!e.dead && e.room && e.room.id === room.id) e.dead = true;
+      const st = this._roomState(room.id);
+      st.wavesRemaining = 0;
+      st.activeWave = false;
+      st.cleared = true;
+      st.reviveTimer = ((G.DemoConfig || {}).roomReviveInterval) || 16;
+      this.toast(G.t('raid.debug.roomCleared'));
+      return true;
     },
 
     _updateAutoHarvest(dt, wantMove) {
@@ -1434,6 +1510,10 @@
       // ---- extract direction arrow ----
       this._drawExtractArrow(ctx, w, h);
 
+      if (this.demo && this.dungeon && this.dungeon.debugVisible) {
+        this._drawDemoDebugPanel(ctx, w, h);
+      }
+
       // ---- toasts ----
       ctx.textAlign = 'center'; ctx.font = '12px monospace';
       for (let i = 0; i < this.toasts.length; i++) {
@@ -1472,6 +1552,29 @@
         ctx.fillStyle = col; ctx.beginPath(); ctx.arc(m.x, m.y, 1.6, 0, U.TAU); ctx.fill();
         ctx.restore();
       }
+    },
+
+    _drawDemoDebugPanel(ctx, w, h) {
+      const S = G.safe;
+      const x = 14 + S.l;
+      const y = h - 92 - S.b;
+      const bw = Math.min(370, w - 28 - S.l - S.r), bh = 78;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.68)';
+      ctx.fillRect(x, y, bw, bh);
+      ctx.strokeStyle = 'rgba(240,196,74,0.35)';
+      ctx.strokeRect(x, y, bw, bh);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = '#f0c44a';
+      ctx.fillText(G.t('raid.debug.title'), x + 10, y + 17);
+      ctx.font = '10px monospace';
+      ctx.fillStyle = 'rgba(255,255,255,0.82)';
+      ctx.fillText(G.t('raid.debug.line1'), x + 10, y + 36);
+      ctx.fillText(G.t('raid.debug.line2'), x + 10, y + 52);
+      ctx.fillText(G.t('raid.debug.line3'), x + 10, y + 68);
+      ctx.restore();
     },
 
     // Shared geometry for the bottom-left weapon panel — the quick-slot bar

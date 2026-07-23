@@ -642,6 +642,53 @@ ok('demo skill selection upgrades projectiles without reward multiplier', () => 
   raid.player.tryShoot(raid);
   if (raid.bullets.filter(b => b.owner === 'player').length !== 2) throw new Error('projectile bonus did not add a bullet');
 });
+ok('demo debug hotkeys cover validation shortcuts', () => {
+  const press = (raid, key) => {
+    G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
+    G.Input._pressed.add(key);
+    raid.update(1 / 60, 800, 600);
+    G.Input._pressed.clear();
+  };
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  press(raid, 'f1');
+  if (!raid.dungeon.debugVisible) throw new Error('F1 did not show debug panel');
+  press(raid, 'f2');
+  if (raid.dungeon.scrollFragments !== 1) throw new Error('F2 did not add a scroll fragment');
+  press(raid, 'f3');
+  if (raid.dungeon.gold !== 5) throw new Error('F3 did not add demo gold');
+  press(raid, 'f5');
+  if (raid._roomAt(raid.player.x, raid.player.y).id !== raid.map.extracts[0].roomId) throw new Error('F5 did not teleport to extract');
+  const combat = raid.map.rooms.find(r => r.kind === 'combat');
+  const cc = raid.map.tileCenter(combat.cx, combat.cy);
+  raid.player.x = cc.x; raid.player.y = cc.y;
+  raid._enterRoom(combat);
+  press(raid, 'f6');
+  if (!raid._roomPortalsOpen(combat.id)) throw new Error('F6 did not clear current room');
+
+  const choiceRaid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  let opened = 0; choiceRaid.onCurseChoice = () => opened++;
+  press(choiceRaid, 'f4');
+  if (!choiceRaid.dungeon.cursePending || !choiceRaid.paused || opened !== 1) throw new Error('F4 did not open upgrade choice');
+
+  const normalRaid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  let normalResult = null; normalRaid.onFinish = r => normalResult = r;
+  press(normalRaid, 'f7');
+  if (!normalResult || normalResult.outcome !== 'normal_extract') throw new Error('F7 did not force normal extract');
+
+  const perfectRaid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  let perfectResult = null; perfectRaid.onFinish = r => perfectResult = r;
+  press(perfectRaid, 'f8');
+  if (!perfectResult || perfectResult.outcome !== 'perfect_extract') throw new Error('F8 did not force perfect extract');
+
+  const deathRaid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  let deathResult = null; deathRaid.onFinish = r => deathResult = r;
+  press(deathRaid, 'f9');
+  deathRaid.update(1 / 60, 800, 600);
+  if (!deathResult || deathResult.outcome !== 'failed') throw new Error('F9 did not force demo failed death');
+});
 
 console.log('\n[6] UI screens build without error');
 ok('all UI screens & overlays render', () => {
