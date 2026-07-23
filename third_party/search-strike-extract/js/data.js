@@ -28,7 +28,9 @@
     VISION_RANGE: 430,      // enemy sight distance
     VISION_FOV: 1.15,       // half-angle radians (~66deg each side)
     HEAR_RANGE: 360,        // gunshot hearing radius
-    BACKPACK_SLOTS: 12,
+    BACKPACK_GRID_W: 8,
+    BACKPACK_GRID_H: 6,
+    BACKPACK_SLOTS: 48,
     STASH_SLOTS: 60,
     SCAV_LOOT_KEEP: 0.5,    // fraction of valuables kept when extracting on a free scav run
 
@@ -51,23 +53,35 @@
     roomMainPathMax: 5,
     roomRewardChance: 0.7,
     roomRewardMax: 2,
-    roomTileW: 8,
-    roomTileH: 7,
+    roomTileW: 12,
+    roomTileH: 9,
     roomGap: 2,
+    roomEntryGraceTime: 1.8,
+    roomSpawnSafeRadius: 170,
+    roomEarlyRangedChance: 0,
+    roomRangedChance: 0.16,
+    roomRewardRangedChance: 0.28,
+    roomExtractRangedChance: 0.24,
+    roomReviveRangedChance: 0.12,
+    monsterRangedChance: 0.16,
+    enemyMoveSpeedMultiplier: 0.72,
+    enemyProjectileSpeedMultiplier: 0.62,
+    roomWaveWarningTime: 5,
+    nearbyLootRadius: 140,
     roomReviveInterval: 16,
     roomReviveMinCount: 2,
     roomReviveBatchRatio: 0.5,
     roomReviveMaxAlive: 6,
-    roomWaveBaseCount: 4,
+    roomWaveBaseCount: 3,
     roomWaveSizePerDepth: 1,
-    roomWaveSizeDepthCap: 4,
+    roomWaveSizeDepthCap: 3,
     roomWaveCountBase: 1,
-    roomWaveCountPerDepth: 1,
-    roomWaveCountMax: 4,
+    roomWaveCountPerDepth: 0.5,
+    roomWaveCountMax: 3,
     roomRewardWaveCount: 2,
-    roomRewardWaveSize: 5,
-    roomExtractWaveCount: 3,
-    roomExtractWaveSize: 6,
+    roomRewardWaveSize: 4,
+    roomExtractWaveCount: 2,
+    roomExtractWaveSize: 5,
     coinItemId: 'd_gold_coin',
     coinPortalBaseCost: 3,
     coinPortalPayInterval: 0.18,
@@ -87,6 +101,21 @@
     enrageDamageBonus: 0.40,
     enrageSpawnIntervalMultiplier: 0.65,
   };
+
+  G.DemoLootDrops = [
+    { id: 'v_canned', w: 10, qty: [1, 2] },
+    { id: 'v_water', w: 10, qty: [1, 2] },
+    { id: 'v_tools', w: 8, qty: [1, 2] },
+    { id: 'v_phone', w: 8, qty: [1, 1] },
+    { id: 'v_cash', w: 8, qty: [1, 3] },
+    { id: 'v_chain', w: 6, qty: [1, 1] },
+    { id: 'm_bandage', w: 5, qty: [1, 1] },
+    { id: 'v_watch', w: 4, qty: [1, 1] },
+    { id: 'v_doc', w: 4, qty: [1, 1] },
+    { id: 'v_gpu', w: 2, qty: [1, 1] },
+    { id: 'v_bitcoin', w: 1, qty: [1, 1] },
+    { id: 'd_scroll_fragment', w: 4, qty: [1, 1] },
+  ];
 
   G.DemoCurses = [
     {
@@ -162,71 +191,80 @@
   def({
     id: 'w_pistol', name: 'PM Pistol', type: 'weapon', cls: 'pistol', ammoType: '9mm',
     damage: 17, fireRate: 230, mag: 8, spread: 0.06, bulletSpeed: 720, range: 460,
-    reloadTime: 1.3, auto: false, recoil: 0.05, value: 90, rarity: 'common', color: '#8a8f99',
+    reloadTime: 1.3, auto: false, recoil: 0.05, value: 90, rarity: 'common', color: '#8a8f99', gridW: 2, gridH: 1,
   });
   def({
     id: 'w_tt', name: 'TT-33', type: 'weapon', cls: 'pistol', ammoType: '9mm',
     damage: 22, fireRate: 200, mag: 8, spread: 0.05, bulletSpeed: 800, range: 500,
-    reloadTime: 1.4, auto: false, recoil: 0.06, value: 160, rarity: 'uncommon', color: '#9b8f7a',
+    reloadTime: 1.4, auto: false, recoil: 0.06, value: 160, rarity: 'uncommon', color: '#9b8f7a', gridW: 2, gridH: 1,
   });
   def({
     id: 'w_smg', name: 'MP5 SMG', type: 'weapon', cls: 'smg', ammoType: '9mm',
     damage: 16, fireRate: 90, mag: 30, spread: 0.075, bulletSpeed: 760, range: 520,
-    reloadTime: 1.9, auto: true, recoil: 0.04, value: 420, rarity: 'uncommon', color: '#5f6470',
+    reloadTime: 1.9, auto: true, recoil: 0.04, value: 420, rarity: 'uncommon', color: '#5f6470', gridW: 3, gridH: 1,
   });
   def({
     id: 'w_vector', name: 'Vector .45', type: 'weapon', cls: 'smg', ammoType: '45',
     damage: 21, fireRate: 65, mag: 25, spread: 0.08, bulletSpeed: 720, range: 500,
-    reloadTime: 2.0, auto: true, recoil: 0.045, value: 760, rarity: 'rare', color: '#4a4f59',
+    reloadTime: 2.0, auto: true, recoil: 0.045, value: 760, rarity: 'rare', color: '#4a4f59', gridW: 3, gridH: 1,
   });
   def({
     id: 'w_ak', name: 'AK-74', type: 'weapon', cls: 'rifle', ammoType: '545',
     damage: 33, fireRate: 110, mag: 30, spread: 0.06, bulletSpeed: 1000, range: 720,
-    reloadTime: 2.3, auto: true, recoil: 0.07, value: 900, rarity: 'rare', color: '#7a5c33',
+    reloadTime: 2.3, auto: true, recoil: 0.07, value: 900, rarity: 'rare', color: '#7a5c33', gridW: 1, gridH: 3,
   });
   def({
     id: 'w_akm', name: 'AKM', type: 'weapon', cls: 'rifle', ammoType: '762',
     damage: 42, fireRate: 120, mag: 30, spread: 0.07, bulletSpeed: 980, range: 740,
-    reloadTime: 2.4, auto: true, recoil: 0.085, value: 1250, rarity: 'epic', color: '#6b4a28',
+    reloadTime: 2.4, auto: true, recoil: 0.085, value: 1250, rarity: 'epic', color: '#6b4a28', gridW: 1, gridH: 3,
   });
   def({
     id: 'w_m4', name: 'M4A1', type: 'weapon', cls: 'rifle', ammoType: '545',
     damage: 31, fireRate: 85, mag: 30, spread: 0.045, bulletSpeed: 1050, range: 780,
-    reloadTime: 2.1, auto: true, recoil: 0.05, value: 1600, rarity: 'epic', color: '#3f4651',
+    reloadTime: 2.1, auto: true, recoil: 0.05, value: 1600, rarity: 'epic', color: '#3f4651', gridW: 1, gridH: 3,
   });
   def({
     id: 'w_shotgun', name: 'Pump Shotgun', type: 'weapon', cls: 'shotgun', ammoType: '12g',
     damage: 13, fireRate: 850, mag: 6, spread: 0.16, bulletSpeed: 640, range: 360,
-    reloadTime: 2.6, auto: false, recoil: 0.18, value: 540, rarity: 'uncommon', color: '#5a4632', pellets: 7,
+    reloadTime: 2.6, auto: false, recoil: 0.18, value: 540, rarity: 'uncommon', color: '#5a4632', pellets: 7, gridW: 1, gridH: 3,
   });
 
   // -- Armor -- (instance carries durability)
-  def({ id: 'a_vest1', name: 'PACA Vest', type: 'armor', armorClass: 2, defPct: 0.30, durability: 40, value: 220, rarity: 'common', color: '#5b6b4a' });
-  def({ id: 'a_vest2', name: '6B23 Armor', type: 'armor', armorClass: 4, defPct: 0.48, durability: 60, value: 620, rarity: 'rare', color: '#46563a' });
-  def({ id: 'a_vest3', name: 'Slick Plate', type: 'armor', armorClass: 5, defPct: 0.55, durability: 80, value: 1400, rarity: 'epic', color: '#2f3a2a' });
+  def({ id: 'a_vest1', name: 'PACA Vest', type: 'armor', armorClass: 2, defPct: 0.30, durability: 40, value: 220, rarity: 'common', color: '#5b6b4a', gridW: 2, gridH: 2 });
+  def({ id: 'a_vest2', name: '6B23 Armor', type: 'armor', armorClass: 4, defPct: 0.48, durability: 60, value: 620, rarity: 'rare', color: '#46563a', gridW: 2, gridH: 2 });
+  def({ id: 'a_vest3', name: 'Slick Plate', type: 'armor', armorClass: 5, defPct: 0.55, durability: 80, value: 1400, rarity: 'epic', color: '#2f3a2a', gridW: 2, gridH: 2 });
 
   // -- Meds --
-  def({ id: 'm_bandage', name: 'Bandage', type: 'med', heal: 35, useTime: 1.8, value: 30, rarity: 'common', color: '#e0e0e0', stack: 8 });
-  def({ id: 'm_medkit', name: 'Medkit', type: 'med', heal: 75, useTime: 3.2, value: 110, rarity: 'uncommon', color: '#d63b3b', stack: 4 });
-  def({ id: 'm_surgical', name: 'Surgical Kit', type: 'med', heal: 100, useTime: 4.5, value: 300, rarity: 'rare', color: '#e85555', stack: 3 });
+  def({ id: 'm_bandage', name: 'Bandage', type: 'med', heal: 35, useTime: 1.8, value: 30, rarity: 'common', color: '#e0e0e0', stack: 8, gridW: 1, gridH: 1 });
+  def({ id: 'm_medkit', name: 'Medkit', type: 'med', heal: 75, useTime: 3.2, value: 110, rarity: 'uncommon', color: '#d63b3b', stack: 4, gridW: 1, gridH: 2 });
+  def({ id: 'm_surgical', name: 'Surgical Kit', type: 'med', heal: 100, useTime: 4.5, value: 300, rarity: 'rare', color: '#e85555', stack: 3, gridW: 2, gridH: 2 });
 
   // -- Valuables (loot to sell) --
-  def({ id: 'v_watch', name: 'Gold Watch', type: 'valuable', value: 240, rarity: 'rare', color: '#f0c44a', stack: 5, slotCost: 1 });
-  def({ id: 'v_chain', name: 'Gold Chain', type: 'valuable', value: 180, rarity: 'uncommon', color: '#e8c24a', stack: 5, slotCost: 1 });
-  def({ id: 'v_gpu', name: 'Graphics Card', type: 'valuable', value: 520, rarity: 'epic', color: '#3fd07a', stack: 3, slotCost: 3 });
-  def({ id: 'v_cash', name: 'Cash Stack', type: 'valuable', value: 150, rarity: 'uncommon', color: '#6fbf6f', stack: 20, slotCost: 1 });
-  def({ id: 'v_phone', name: 'Smartphone', type: 'valuable', value: 95, rarity: 'common', color: '#3a8fd0', stack: 10, slotCost: 1 });
-  def({ id: 'v_meds', name: 'Drug Vials', type: 'valuable', value: 130, rarity: 'uncommon', color: '#c060d0', stack: 10, slotCost: 1 });
-  def({ id: 'v_tools', name: 'Tool Set', type: 'valuable', value: 75, rarity: 'common', color: '#c08040', stack: 8, slotCost: 1 });
-  def({ id: 'v_doc', name: 'Secure Docs', type: 'valuable', value: 320, rarity: 'rare', color: '#d0d040', stack: 6, slotCost: 2 });
-  def({ id: 'v_bitcoin', name: 'Physical Bitcoin', type: 'valuable', value: 900, rarity: 'epic', color: '#f7931a', stack: 2, slotCost: 3 });
-  def({ id: 'v_canned', name: 'Canned Food', type: 'valuable', value: 35, rarity: 'common', color: '#9aa055', stack: 12, slotCost: 1 });
-  def({ id: 'v_water', name: 'Water Bottle', type: 'valuable', value: 28, rarity: 'common', color: '#5ab0d0', stack: 12, slotCost: 1 });
-  def({ id: 'd_scroll_fragment', name: 'Extraction Scroll Fragment', type: 'key', value: 0, rarity: 'rare', color: '#8fd6ff', stack: 99 });
+  def({ id: 'v_watch', name: 'Gold Watch', type: 'valuable', value: 240, rarity: 'rare', color: '#f0c44a', stack: 5, slotCost: 1, gridW: 1, gridH: 1 });
+  def({ id: 'v_chain', name: 'Gold Chain', type: 'valuable', value: 180, rarity: 'uncommon', color: '#e8c24a', stack: 5, slotCost: 1, gridW: 1, gridH: 1 });
+  def({ id: 'v_gpu', name: 'Graphics Card', type: 'valuable', value: 520, rarity: 'epic', color: '#3fd07a', stack: 3, slotCost: 3, gridW: 2, gridH: 2 });
+  def({ id: 'v_cash', name: 'Cash Stack', type: 'valuable', value: 150, rarity: 'uncommon', color: '#6fbf6f', stack: 20, slotCost: 1, gridW: 1, gridH: 1 });
+  def({ id: 'v_phone', name: 'Smartphone', type: 'valuable', value: 95, rarity: 'common', color: '#3a8fd0', stack: 10, slotCost: 1, gridW: 1, gridH: 2 });
+  def({ id: 'v_meds', name: 'Drug Vials', type: 'valuable', value: 130, rarity: 'uncommon', color: '#c060d0', stack: 10, slotCost: 1, gridW: 1, gridH: 1 });
+  def({ id: 'v_tools', name: 'Tool Set', type: 'valuable', value: 75, rarity: 'common', color: '#c08040', stack: 8, slotCost: 1, gridW: 2, gridH: 1 });
+  def({ id: 'v_doc', name: 'Secure Docs', type: 'valuable', value: 320, rarity: 'rare', color: '#d0d040', stack: 6, slotCost: 2, gridW: 2, gridH: 1 });
+  def({ id: 'v_bitcoin', name: 'Physical Bitcoin', type: 'valuable', value: 900, rarity: 'epic', color: '#f7931a', stack: 2, slotCost: 3, gridW: 1, gridH: 2 });
+  def({ id: 'v_canned', name: 'Canned Food', type: 'valuable', value: 35, rarity: 'common', color: '#9aa055', stack: 12, slotCost: 1, gridW: 1, gridH: 1 });
+  def({ id: 'v_water', name: 'Water Bottle', type: 'valuable', value: 28, rarity: 'common', color: '#5ab0d0', stack: 12, slotCost: 1, gridW: 1, gridH: 2 });
+  def({ id: 'd_scroll_fragment', name: 'Extraction Scroll Fragment', type: 'key', value: 0, rarity: 'rare', color: '#8fd6ff', stack: 99, gridW: 1, gridH: 1 });
   def({ id: 'd_gold_coin', name: 'Dungeon Gold Coin', type: 'key', value: 0, rarity: 'uncommon', color: '#f0c44a', stack: 99 });
 
   G.Items = ITEMS;
   G.getItem = (id) => ITEMS[id];
+  G.itemGridSize = (id) => {
+    const d = ITEMS[id];
+    if (!d) return { w: 1, h: 1 };
+    if (d.gridW && d.gridH) return { w: d.gridW, h: d.gridH };
+    const cells = Math.max(1, d.slotCost || 1);
+    if (cells === 1) return { w: 1, h: 1 };
+    if (cells === 2) return { w: 2, h: 1 };
+    return d.type === 'weapon' ? { w: 1, h: cells } : { w: Math.min(2, cells), h: Math.ceil(cells / 2) };
+  };
 
   G.RARITY_COLOR = {
     common: '#9aa3ad', uncommon: '#4fb04f', rare: '#3d7fd0', epic: '#b056d0',
@@ -318,6 +356,15 @@
   /* ------------------------- Enemy loadouts ----------------------------- */
   // tier scales with difficulty; drop = chance-weighted extra loot on death.
   G.EnemyTiers = {
+    beast: {
+      label: 'Thrall', hp: 48, melee: true, meleeDamage: 7, meleeRange: 32, meleeCooldown: 1.2, speed: 76,
+      armorChance: 0, armor: [], accuracy: 0, color: '#7b4a4a',
+      reactTime: 0.35, drops: [
+        { id: 'v_canned', w: 5, qty: [1, 1] }, { id: 'v_water', w: 5, qty: [1, 1] },
+        { id: 'v_cash', w: 3, qty: [1, 1] }, { id: 'm_bandage', w: 2, qty: [1, 1] },
+        { id: 'd_scroll_fragment', w: 2, qty: [1, 1] },
+      ], dropRolls: [0, 1],
+    },
     scav: {
       label: 'Scav', hp: 65, weapons: ['w_pistol', 'w_pistol', 'w_smg', 'w_shotgun'],
       armorChance: 0.18, armor: ['a_vest1'], accuracy: 0.55, color: '#6b6256',

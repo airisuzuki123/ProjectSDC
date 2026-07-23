@@ -89,7 +89,8 @@
       p.slot = p.weapons[0] ? 0 : (p.weapons[1] ? 1 : 0);
       p.armor = carried.armorId ? { id: carried.armorId, durability: G.getItem(carried.armorId).durability } : null;
       p.reserve = Object.assign({}, carried.reserve);
-      p.backpack = (carried.backpack || []).map(s => ({ id: s.id, n: s.n }));
+      p.backpack = (carried.backpack || []).map(s => ({ id: s.id, n: s.n, x: s.x, y: s.y, w: s.w, h: s.h }));
+      p.ensureBackpackLayout();
       // top off the equipped magazine from reserve
       for (const w of p.weapons) {
         if (!w) continue;
@@ -173,11 +174,13 @@
       dt = Math.min(dt, 0.05);
       this.time += dt;
       this.timeLeft -= dt;
+      if (this.dungeon && this.dungeon.roomEntryGrace > 0) this.dungeon.roomEntryGrace = Math.max(0, this.dungeon.roomEntryGrace - dt);
       this._updateDungeonCurses();
       this._updateDungeonPressure(dt);
 
       this._nearestCont = this._nearestContainer();
       this._handleInput(dt);
+      if (this.paused) return;
       this.player.updateActions(dt, this);
 
       for (const e of this.enemies) e.update(dt, this);
@@ -207,6 +210,9 @@
       // discrete actions from keys + buttons
       Input.queueKeyActions(KEY_ACTIONS);
       if (this._handleDemoDebugActions()) return;
+      if (!Input.touchEnabled && Input.mousePressed() && this._desktopInvButton && pointInRect(Input.mouse.x, Input.mouse.y, this._desktopInvButton)) {
+        this.paused = true; this.invOpen = true; Input.resetTouch(); this.onInventory(); return;
+      }
       if (Input.consumeAction('reload') && !this.demo) p.reload();
       if (Input.consumeAction('heal')) p.useMed(this);
       if (Input.consumeAction('swap')) p.swapWeapon(this);
@@ -343,6 +349,7 @@
       st.wavesRemaining = 0;
       st.activeWave = false;
       st.cleared = true;
+      st.waveWarning = null;
       st.reviveTimer = ((G.DemoConfig || {}).roomReviveInterval) || 16;
       this.toast(G.t('raid.debug.roomCleared'));
       return true;
@@ -417,11 +424,13 @@
         const leftover = special ? special.leftover : this.player.addLoot(it.id, it.n);
         const got = special ? special.got : it.n - leftover;
         if (got > 0) taken.push({ id: it.id, n: got });
-        it.n = leftover;
-        if (it.n <= 0) cont.items.splice(i, 1);
-        if (leftover > 0) full = true;
+        if (leftover > 0) {
+          this._dropGroundItem(cont.x, cont.y, it.id, leftover, { delay: 0.1, scatter: 24 });
+          full = true;
+        }
+        cont.items.splice(i, 1);
       }
-      if (!cont.items.length) cont.searched = true;
+      cont.searched = true;
       if (taken.length) {
         G.Audio.play('pickup', { vol: 0.7 });
         const names = taken.map(t => G.I18n.itemName(t.id) + (t.n > 1 ? ' ' + G.t('ui.item.qty', { n: t.n }) : '')).join(', ');
@@ -430,6 +439,20 @@
       // any weapon/armor that auto-equipped on pickup announces itself
       this._flushEquipMsgs();
       if (full) this.toast(G.t('raid.toast.bagFull'));
+    },
+
+    _dropGroundItem(x, y, id, n, opts) {
+      opts = opts || {};
+      const scatter = opts.scatter == null ? 18 : opts.scatter;
+      this.groundItems.push({
+        x: x + U.rand(-scatter, scatter),
+        y: y + U.rand(-scatter, scatter),
+        id,
+        n,
+        pop: opts.pop == null ? 0.3 : opts.pop,
+        delay: opts.delay == null ? 0 : opts.delay,
+        bob: Math.random() * 6,
+      });
     },
 
     _nearestContainer() {
@@ -663,13 +686,21 @@
         const sameRoom = spawns.filter(s => s.roomId === this.dungeon.currentRoomId);
         if (sameRoom.length) spawns = sameRoom;
       }
-      const src = U.choice(spawns);
-      let tier = tierOverride || 'scav';
+      let src = U.choice(spawns);
+      if (this.demo && this.dungeon && this.dungeon.currentRoomId) {
+        const room = this.map.rooms.find(r => r.id === this.dungeon.currentRoomId);
+        const safeRadius = (G.DemoConfig && G.DemoConfig.roomSpawnSafeRadius) || 118;
+        const far = spawns.filter(s => U.dist(s.x, s.y, this.player.x, this.player.y) >= safeRadius);
+        if (far.length) src = U.choice(far);
+        else src = this._fallbackRoomSpawn(room, safeRadius) || src;
+      }
+      let tier = tierOverride || 'beast';
       if (!tierOverride) {
         const level = this.dungeon ? this.dungeon.monsterLevel : 1;
-        const baseEliteChance = (this.dungeon && this.dungeon.enraged) ? 0.5 : (level >= 4 ? 0.35 : level >= 3 ? 0.2 : 0);
+        const baseEliteChance = (this.dungeon && this.dungeon.enraged) ? 0.32 : (level >= 4 ? 0.2 : level >= 3 ? 0.1 : 0);
         const eliteChance = U.clamp(baseEliteChance * this._curseModifier('eliteSpawnChanceMultiplier', 1), 0, 0.95);
-        tier = U.chance(eliteChance) ? 'raider' : 'scav';
+        if (U.chance(eliteChance)) tier = 'raider';
+        else tier = U.chance(cfg.monsterRangedChance == null ? 0.16 : cfg.monsterRangedChance) ? 'scav' : 'beast';
       }
       this._spawnEnemyFromPoint(src, tier);
       return true;
@@ -714,6 +745,8 @@
     _playerProjectileRangeMultiplier() { return this._curseModifier('playerProjectileRangeMultiplier', 1); },
     _playerTakenDamageMultiplier() { return this._curseModifier('playerTakenDamageMultiplier', 1); },
     _healMultiplier() { return this._curseModifier('healMultiplier', 1); },
+    _enemyMoveSpeedMultiplier() { return this.demo && G.DemoConfig ? (G.DemoConfig.enemyMoveSpeedMultiplier || 1) : 1; },
+    _enemyProjectileSpeedMultiplier() { return this.demo && G.DemoConfig ? (G.DemoConfig.enemyProjectileSpeedMultiplier || 1) : 1; },
 
     // Drain any auto-equip notifications queued by Player.addLoot during a pickup.
     _flushEquipMsgs() {
@@ -764,14 +797,17 @@
         }
         const target = this.map.rooms.find(r => r.id === p.toRoomId);
         if (!target) return;
+        const fromRoomId = room.id;
         const c = this.map.tileCenter(target.cx, target.cy);
         this.player.x = c.x; this.player.y = c.y;
         this.player.cancelActions();
         d.currentRoomId = target.id;
         d.portalCooldown = 0.55;
+        d.roomEntryGrace = (G.DemoConfig && G.DemoConfig.roomEntryGraceTime) || 1.35;
         this.extracting = null;
         if (d.extractionChallenge) d.extractionChallenge = null;
         this.cam.x = this.player.x; this.cam.y = this.player.y;
+        this._pacifyRoomEnemies(fromRoomId);
         this._enterRoom(target);
         this.toast(G.t('raid.toast.portalEntered'));
         return;
@@ -786,7 +822,7 @@
       const st = this._roomState(room.id);
       if (!st.started) {
         st.started = true;
-        if (st.wavesRemaining > 0) this._spawnRoomWave(room.id);
+        if (st.wavesRemaining > 0) this._startRoomWarning(room.id, 'wave');
         else st.cleared = true;
       }
     },
@@ -801,6 +837,7 @@
           cleared: room.kind === 'spawn',
           wavesRemaining: room.waveCount || 0,
           activeWave: false,
+          waveWarning: null,
           reviveTimer: cfg.roomReviveInterval || 16,
         };
       }
@@ -814,10 +851,20 @@
       if (room.id !== this.dungeon.currentRoomId) this._enterRoom(room);
       const st = this._roomState(room.id);
       if (!st.started) this._enterRoom(room);
+      if (st.waveWarning) {
+        st.waveWarning.t -= dt;
+        if (st.waveWarning.t <= 0) {
+          const kind = st.waveWarning.kind;
+          st.waveWarning = null;
+          if (kind === 'revive') this._spawnRoomRevive(room.id);
+          else this._spawnRoomWave(room.id);
+        }
+        return;
+      }
       const alive = this._aliveEnemiesInRoom(room.id);
       if (st.activeWave && alive <= 0) {
         st.activeWave = false;
-        if (st.wavesRemaining > 0) this._spawnRoomWave(room.id);
+        if (st.wavesRemaining > 0) this._startRoomWarning(room.id, 'wave');
         else {
           st.cleared = true;
           st.reviveTimer = ((G.DemoConfig || {}).roomReviveInterval) || 16;
@@ -827,13 +874,18 @@
         if (alive > 0) return;
         st.reviveTimer -= dt;
         if (st.reviveTimer <= 0) {
-          if (this._spawnRoomRevive(room.id)) {
-            st.cleared = false;
-            st.activeWave = true;
-          }
-          st.reviveTimer += ((G.DemoConfig || {}).roomReviveInterval) || 16;
+          if (this._canSpawnRoomRevive(room.id)) this._startRoomWarning(room.id, 'revive');
+          else st.reviveTimer += ((G.DemoConfig || {}).roomReviveInterval) || 16;
         }
       }
+    },
+
+    _startRoomWarning(roomId, kind) {
+      const st = this._roomState(roomId);
+      const cfg = G.DemoConfig || {};
+      st.waveWarning = { kind: kind || 'wave', t: cfg.roomWaveWarningTime || 5, total: cfg.roomWaveWarningTime || 5 };
+      if (kind !== 'revive') st.cleared = false;
+      return st.waveWarning;
     },
 
     _spawnRoomWave(roomId) {
@@ -841,7 +893,8 @@
       const room = this.map.rooms.find(r => r.id === roomId);
       if (!room || st.wavesRemaining <= 0) return false;
       const count = room.waveSize || 3;
-      for (let i = 0; i < count; i++) this._spawnEnemyInRoom(roomId, room.kind === 'reward' ? 0.35 : room.pathIndex >= 2 ? 0.2 : 0);
+      const eliteChance = room.kind === 'reward' ? 0.18 : room.kind === 'extract' ? 0.14 : room.pathIndex >= 2 ? 0.08 : 0;
+      for (let i = 0; i < count; i++) this._spawnEnemyInRoom(roomId, eliteChance);
       st.wavesRemaining--;
       st.activeWave = true;
       return true;
@@ -857,22 +910,87 @@
       const desired = Math.max(cfg.roomReviveMinCount || 2, Math.ceil((room.waveSize || 4) * (cfg.roomReviveBatchRatio || 0.5)));
       const count = Math.min(maxAlive - alive, desired);
       if (count <= 0) return false;
-      for (let i = 0; i < count; i++) this._spawnEnemyInRoom(roomId, room.kind === 'reward' ? 0.3 : 0.12);
+      const eliteChance = room.kind === 'reward' ? 0.14 : 0.04;
+      for (let i = 0; i < count; i++) this._spawnEnemyInRoom(roomId, eliteChance, { revive: true });
+      const st = this._roomState(roomId);
+      st.cleared = true;
+      st.activeWave = false;
+      st.reviveTimer = cfg.roomReviveInterval || 16;
       this.toast(G.t('raid.toast.roomRevive'));
       return true;
     },
 
-    _spawnEnemyInRoom(roomId, eliteChance) {
+    _canSpawnRoomRevive(roomId) {
+      const room = this.map.rooms.find(r => r.id === roomId);
+      if (!room || room.kind === 'spawn') return false;
+      const cfg = G.DemoConfig || {};
+      const alive = this._aliveEnemiesInRoom(roomId);
+      const maxAlive = cfg.roomReviveMaxAlive || 6;
+      if (alive >= maxAlive) return false;
+      const desired = Math.max(cfg.roomReviveMinCount || 2, Math.ceil((room.waveSize || 4) * (cfg.roomReviveBatchRatio || 0.5)));
+      return Math.min(maxAlive - alive, desired) > 0;
+    },
+
+    _spawnEnemyInRoom(roomId, eliteChance, opts) {
       const spawns = (this.map.enemySpawns || []).filter(s => s.roomId === roomId);
       if (!spawns.length) return false;
-      const src = U.choice(spawns);
-      const tier = U.chance(eliteChance || 0) ? 'raider' : 'scav';
+      const room = this.map.rooms.find(r => r.id === roomId);
+      const safeRadius = (G.DemoConfig && G.DemoConfig.roomSpawnSafeRadius) || 118;
+      const far = spawns.filter(s => U.dist(s.x, s.y, this.player.x, this.player.y) >= safeRadius);
+      const pool = far.length ? far : spawns.slice().sort((a, b) =>
+        U.dist(b.x, b.y, this.player.x, this.player.y) - U.dist(a.x, a.y, this.player.x, this.player.y));
+      const src = far.length ? U.choice(pool) : (this._fallbackRoomSpawn(room, safeRadius) || pool[0]);
+      const rangedChance = this._roomRangedChance(room, opts);
+      const elite = U.chance(U.clamp((eliteChance || 0) * this._curseModifier('eliteSpawnChanceMultiplier', 1), 0, 0.95));
+      const tier = elite ? 'raider' : (U.chance(rangedChance) ? 'scav' : 'beast');
       this._spawnEnemyFromPoint(src, tier);
       return true;
     },
 
+    _fallbackRoomSpawn(room, safeRadius) {
+      if (!room) return null;
+      for (let tries = 0; tries < 32; tries++) {
+        const tx = U.randInt(room.x + 1, room.x + room.w - 2);
+        const ty = U.randInt(room.y + 1, room.y + room.h - 2);
+        const c = this.map.tileCenter(tx, ty);
+        if (this.map.solidAtPx(c.x, c.y)) continue;
+        if (U.dist(c.x, c.y, this.player.x, this.player.y) < safeRadius) continue;
+        return { x: c.x, y: c.y, tier: 'beast', room, roomId: room.id };
+      }
+      return null;
+    },
+
+    _roomRangedChance(room, opts) {
+      const cfg = G.DemoConfig || {};
+      if (opts && opts.revive) return cfg.roomReviveRangedChance == null ? 0.12 : cfg.roomReviveRangedChance;
+      if (room && room.kind === 'reward') return cfg.roomRewardRangedChance == null ? 0.28 : cfg.roomRewardRangedChance;
+      if (room && room.kind === 'extract') return cfg.roomExtractRangedChance == null ? 0.24 : cfg.roomExtractRangedChance;
+      if (room && room.pathIndex <= 1) return cfg.roomEarlyRangedChance == null ? 0 : cfg.roomEarlyRangedChance;
+      return cfg.roomRangedChance == null ? 0.16 : cfg.roomRangedChance;
+    },
+
+    _enemyFireSuppressed() {
+      return !!(this.demo && this.dungeon && this.dungeon.roomEntryGrace > 0);
+    },
+
+    _playerDamageSuppressed() {
+      return !!(this.demo && this.dungeon && this.dungeon.roomEntryGrace > 0);
+    },
+
     _aliveEnemiesInRoom(roomId) {
       return this.enemies.filter(e => !e.dead && e.room && e.room.id === roomId).length;
+    },
+
+    _pacifyRoomEnemies(roomId) {
+      for (const e of this.enemies) {
+        if (e.dead || !e.room || e.room.id !== roomId) continue;
+        e.state = 'patrol';
+        e.stateT = 0;
+        e.lastKnown = null;
+        e.path = null;
+        e.canSee = false;
+        e.reactT = e.def && e.def.reactTime ? e.def.reactTime : 0;
+      }
     },
 
     _roomPortalsOpen(roomId) {
@@ -983,14 +1101,24 @@
       this.floatText(e.x, e.y - 20, G.t('raid.float.eliminated'), '#ff5a5a');
       const scatter = () => U.rand(-14, 14);
       const drop = (id, n) => this.groundItems.push({ x: e.x + scatter(), y: e.y + scatter(), id, n, pop: 0.3, delay: 0.25, bob: Math.random() * 6 });
+      if (this.demo && this.dungeon) {
+        drop((G.DemoConfig && G.DemoConfig.coinItemId) || 'd_gold_coin', e.tier === 'raider' || e.tier === 'boss' ? U.randInt(2, 3) : U.randInt(1, 2));
+        const table = G.DemoLootDrops || [];
+        const rolls = e.tier === 'raider' || e.tier === 'boss' ? 2 : 1;
+        for (let i = 0; i < rolls && table.length; i++) {
+          const pick = this._weightedDungeonDrop(table);
+          drop(pick.id, U.randInt(pick.qty[0], pick.qty[1]));
+        }
+        return;
+      }
       // weapon drop
-      if (U.chance(0.5)) drop(e.weaponId, 1);
+      if (e.weaponId && U.chance(0.5)) drop(e.weaponId, 1);
       // armor drop
       if (e.armorId && U.chance(0.4)) drop(e.armorId, 1);
-      if (this.demo && this.dungeon) drop((G.DemoConfig && G.DemoConfig.coinItemId) || 'd_gold_coin', e.tier === 'raider' || e.tier === 'boss' ? U.randInt(2, 3) : U.randInt(1, 2));
       // some ammo of its caliber
-      const cal = G.getItem(e.weaponId).ammoType;
-      if (G.AMMO_ITEM[cal] && U.chance(0.7)) drop(G.AMMO_ITEM[cal], U.randInt(8, 24));
+      const weaponDef = e.weaponId && G.getItem(e.weaponId);
+      const cal = weaponDef && weaponDef.ammoType;
+      if (cal && G.AMMO_ITEM[cal] && U.chance(0.7)) drop(G.AMMO_ITEM[cal], U.randInt(8, 24));
       // tier drop table
       const tier = e.def;
       let rolls = U.randInt(tier.dropRolls[0], tier.dropRolls[1]);
@@ -1061,7 +1189,13 @@
     // out of the aim thumb's bottom-right territory). All geometry respects the
     // notch / home-indicator safe-area insets.
     _layoutButtons(w, h) {
-      if (!Input.touchEnabled) { Input.clearButtons(); return; }
+      if (!Input.touchEnabled) {
+        Input.clearButtons();
+        const S = G.safe;
+        this._desktopInvButton = { x: w - S.r - 124, y: S.t + 54, w: 110, h: 28 };
+        return;
+      }
+      this._desktopInvButton = null;
       const S = G.safe;
       const pad = 12;
       const names = ['sprint', 'search', 'reload', 'heal', 'swap'];
@@ -1149,13 +1283,49 @@
       ctx.restore();
     },
 
+    _drawBagIcon(ctx, x, y, s, color) {
+      ctx.save();
+      ctx.strokeStyle = color || '#e8e8e8';
+      ctx.lineWidth = Math.max(1.5, s * 0.12);
+      ctx.lineJoin = 'round';
+      ctx.strokeRect(x - s * 0.42, y - s * 0.18, s * 0.84, s * 0.58);
+      ctx.beginPath();
+      ctx.arc(x, y - s * 0.18, s * 0.22, Math.PI, 0);
+      ctx.stroke();
+      ctx.restore();
+    },
+
+    _groundQualityBeamColor(g) {
+      const d = G.getItem(g.id);
+      if (!d || (d.rarity !== 'rare' && d.rarity !== 'epic')) return null;
+      return G.RARITY_COLOR[d.rarity] || null;
+    },
+
     _drawGround(ctx) {
       for (const g of this.groundItems) {
         if (g.delay > 0) continue;
         const d = G.getItem(g.id);
         const bob = Math.sin(this.time * 4 + (g.bob || 0)) * 2;
         const s = 17 + (g.pop > 0 ? g.pop * 20 : 0);
-        if (d.rarity === 'rare' || d.rarity === 'epic') { ctx.shadowColor = G.RARITY_COLOR[d.rarity]; ctx.shadowBlur = 10; }
+        const beam = this._groundQualityBeamColor(g);
+        if (beam) {
+          const grad = ctx.createLinearGradient(g.x, g.y - 92, g.x, g.y + 8);
+          grad.addColorStop(0, beam + '00');
+          grad.addColorStop(0.45, beam + '66');
+          grad.addColorStop(1, beam + '18');
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.moveTo(g.x - 9, g.y + 7);
+          ctx.lineTo(g.x - 4, g.y - 92);
+          ctx.lineTo(g.x + 4, g.y - 92);
+          ctx.lineTo(g.x + 9, g.y + 7);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+          ctx.shadowColor = beam; ctx.shadowBlur = 10;
+        }
         G.Sprites.groundItem(ctx, d, g.x, g.y + bob, s);
         ctx.shadowBlur = 0;
       }
@@ -1454,6 +1624,19 @@
       ctx.fillText('₵ ' + U.formatNum(p.lootValue()), rightX, topY + 18);
       ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '11px monospace';
       ctx.fillText(G.t('raid.hud.bag', { n: p.backpackCount(), max: p.backpackLimit ? p.backpackLimit() : C.BACKPACK_SLOTS }), rightX, topY + 34);
+      if (!Input.touchEnabled && this._desktopInvButton) {
+        const b = this._desktopInvButton;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+        ctx.fillStyle = '#e8e8e8';
+        ctx.font = 'bold 11px monospace';
+        ctx.textAlign = 'center';
+        this._drawBagIcon(ctx, b.x + 17, b.y + 15, 14, '#e8e8e8');
+        ctx.fillText('BAG [Tab]', b.x + 62, b.y + 18);
+        ctx.textAlign = 'right';
+      }
       if (this.demo && this.dungeon) {
         ctx.fillStyle = this._canNormalExtract() ? '#8fd6ff' : 'rgba(255,255,255,0.68)';
         ctx.fillText(G.t('raid.hud.scrolls', this._scrollParams()), rightX, topY + 50);
@@ -1478,6 +1661,17 @@
       // ---- context prompt ----
       const cont = this._nearestCont;
       ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = 'bold 13px monospace';
+      const roomWarning = this._currentRoomWarning();
+      if (roomWarning) {
+        const n = Math.max(1, Math.ceil(roomWarning.t));
+        const text = G.t(roomWarning.kind === 'revive' ? 'raid.hud.reviveCountdown' : 'raid.hud.waveCountdown', { n });
+        ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(w / 2 - 150, h * 0.34, 300, 44);
+        ctx.strokeStyle = roomWarning.kind === 'revive' ? '#f0c44a' : '#ff7b5a';
+        ctx.strokeRect(w / 2 - 150, h * 0.34, 300, 44);
+        ctx.fillStyle = roomWarning.kind === 'revive' ? '#ffe08a' : '#ffb0a0';
+        ctx.font = 'bold 17px monospace';
+        ctx.fillText(text, w / 2, h * 0.34 + 28);
+      }
       if (this.extracting) {
         const total = this._extractDuration();
         const frac = this.extracting.t / total;
@@ -1552,6 +1746,14 @@
         ctx.fillStyle = col; ctx.beginPath(); ctx.arc(m.x, m.y, 1.6, 0, U.TAU); ctx.fill();
         ctx.restore();
       }
+    },
+
+    _currentRoomWarning() {
+      if (!this.demo || !this.dungeon) return null;
+      const room = this._roomAt(this.player.x, this.player.y);
+      if (!room) return null;
+      const st = this._roomState(room.id);
+      return st.waveWarning || null;
     },
 
     _drawDemoDebugPanel(ctx, w, h) {
@@ -1805,6 +2007,8 @@
       btn('heal', G.t('raid.btn.heal'), 'rgba(90,208,106,0.5)');
       btn('swap', G.t('raid.btn.swap'), 'rgba(200,200,200,0.4)');
       btn('inv', G.t('raid.btn.bag'), 'rgba(255,255,255,0.3)');
+      const ib = Input.buttons.inv;
+      if (ib && ib.x !== undefined) this._drawBagIcon(ctx, ib.x + ib.w / 2, ib.y + ib.h * 0.34, Math.min(18, ib.h * 0.6), '#fff');
       btn('pause', '❚❚', 'rgba(255,255,255,0.3)');
     },
   };
@@ -1829,6 +2033,10 @@
     const px = x1 + dx * t, py = y1 + dy * t;
     const ddx = cx - px, ddy = cy - py;
     return ddx * ddx + ddy * ddy <= r * r;
+  }
+
+  function pointInRect(x, y, r) {
+    return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
   }
 
   // tint a hex color by a small shade index (floor variation)

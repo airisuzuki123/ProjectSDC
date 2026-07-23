@@ -149,6 +149,14 @@
       const sr = st.raids ? Math.round(st.survived / st.raids * 100) : 0;
       const wrap = h('div', { class: 'screen hub' });
       wrap.appendChild(this.header(t('ui.brand.title'), t('ui.hub.subtitle')));
+      const demoMenu = h('div', { class: 'mainmenu demo-hub-menu' }, [
+        bigBtn(t('ui.hub.menu.demo.title'), t('ui.hub.menu.demo.sub'), 'primary', () => this.host.startDemoRaid()),
+        bigBtn(t('ui.hub.menu.settings.title'), t('ui.hub.menu.settings.sub'), 'secondary', () => this.showSettings()),
+      ]);
+      wrap.appendChild(demoMenu);
+      wrap.appendChild(h('div', { class: 'hint demo-hub-hint', text: t('ui.hub.tip') }));
+      this.root.appendChild(wrap);
+      return;
 
       const stats = h('div', { class: 'statstrip' }, [
         statBox(t('ui.hub.stat.raids'), st.raids), statBox(t('ui.hub.stat.survived'), st.survived + ' (' + sr + '%)'),
@@ -564,6 +572,8 @@
 
     /* ------------------------ RAID INVENTORY --------------------------- */
     openRaidInventory(raid) {
+      this._openRaidInventoryV2(raid);
+      return;
       this.show(); this.clear();
       const p = raid.player;
       const wrap = h('div', { class: 'screen overlay-screen' });
@@ -612,6 +622,164 @@
       this.root.appendChild(wrap);
     },
 
+    _openRaidInventoryV2(raid) {
+      this.show(); this.clear();
+      const p = raid.player;
+      if (p.ensureBackpackLayout) p.ensureBackpackLayout();
+      const nearbyLoot = this._nearbyGroundLoot(raid);
+      const wrap = h('div', { class: 'screen overlay-screen raid-inventory-screen' });
+      wrap.appendChild(h('div', { class: 'inv-head' }, [
+        h('div', { class: 'pause-title', text: t('ui.inv.title') }),
+        h('div', { class: 'inv-val', text: t('ui.inv.lootValue', { value: U.formatNum(p.lootValue()), count: p.backpackCount(), total: p.backpackLimit ? p.backpackLimit() : G.Config.BACKPACK_SLOTS }) }),
+        h('div', { class: 'inv-drag-hint', text: t('ui.inv.dragHint') }),
+      ]));
+
+      const body = h('div', { class: 'raid-inv-body' });
+      const bagPane = h('div', { class: 'raid-inv-pane bag-pane' }, h('div', { class: 'raid-inv-pane-title', text: t('ui.inv.backpack') }));
+      const cols = p.backpackCols ? p.backpackCols() : 8;
+      const rows = p.backpackRows ? p.backpackRows() : 6;
+      const bagGrid = h('div', { class: 'raid-inv-grid bag-grid-occupancy', style: '--bag-cols:' + cols + ';--bag-rows:' + rows + ';' });
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) bagGrid.appendChild(h('div', { class: 'bag-cell', style: 'grid-column:' + (x + 1) + ';grid-row:' + (y + 1) + ';' }));
+      bagGrid.addEventListener('dragover', (e) => e.preventDefault());
+      bagGrid.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const data = dragData(e);
+        const cell = bagCellFromEvent(bagGrid, e, cols, rows);
+        if (data.from === 'ground') this._moveGroundToBackpackAt(raid, data.index, cell.x, cell.y);
+        else if (data.from === 'bag') this._moveBackpackItemToCell(raid, data.index, cell.x, cell.y);
+        this.openRaidInventory(raid);
+      });
+      if (!p.backpack.length) bagGrid.appendChild(h('div', { class: 'empty', text: t('ui.inv.empty') }));
+      p.backpack.forEach((s, i) => {
+        const def = G.getItem(s.id);
+        const sz = p._entryGridSize ? p._entryGridSize(s) : (G.itemGridSize ? G.itemGridSize(s.id) : { w: 1, h: 1 });
+        const slotText = t('ui.inv.slotCost', { n: sz.w * sz.h });
+        const tagJoin = ' · ';
+        const opts = { tag: slotText + tagJoin + t(def.type === 'med' ? 'ui.inv.tag.use' : def.type === 'armor' ? 'ui.inv.tag.equip' : 'ui.inv.tag.drop') };
+        if (def.type === 'med') opts.onclick = () => { p.useMed(raid); this.openRaidInventory(raid); };
+        else if (def.type === 'armor') opts.onclick = () => { p.equipArmorById(s.id, raid); this.openRaidInventory(raid); };
+        else opts.onclick = () => { this._moveBackpackToGround(raid, i); this.openRaidInventory(raid); };
+        const tile = itemTile(s.id, s.n, opts);
+        tile.setAttribute('draggable', 'true');
+        tile.className += ' bag-item';
+        tile.setAttribute('style', (tile.getAttribute('style') || '') + ';grid-column:' + (s.x + 1) + ' / span ' + sz.w + ';grid-row:' + (s.y + 1) + ' / span ' + sz.h + ';');
+        tile.dataset.from = 'bag';
+        tile.dataset.index = String(i);
+        tile.addEventListener('dragstart', (e) => setDragData(e, { from: 'bag', index: i }));
+        tile.addEventListener('dragover', (e) => e.preventDefault());
+        tile.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const data = dragData(e);
+          if (data.from === 'bag') this._moveBackpackItemToCell(raid, data.index, s.x, s.y);
+          else if (data.from === 'ground') this._moveGroundToBackpackAt(raid, data.index, s.x, s.y);
+          this.openRaidInventory(raid);
+        });
+        bagGrid.appendChild(tile);
+      });
+      bagPane.appendChild(bagGrid);
+
+      const lootPane = h('div', { class: 'raid-inv-pane loot-pane' }, h('div', { class: 'raid-inv-pane-title', text: t('ui.inv.nearbyLoot') }));
+      const lootGrid = h('div', { class: 'item-grid raid-inv-grid loot-grid' });
+      lootGrid.addEventListener('dragover', (e) => e.preventDefault());
+      lootGrid.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const data = dragData(e);
+        if (data.from === 'bag') { this._moveBackpackToGround(raid, data.index); this.openRaidInventory(raid); }
+      });
+      if (!nearbyLoot.length) lootGrid.appendChild(h('div', { class: 'empty', text: t('ui.inv.nearbyEmpty') }));
+      for (const entry of nearbyLoot) {
+        const g = entry.item;
+        const sz = G.itemGridSize ? G.itemGridSize(g.id) : { w: 1, h: 1 };
+        const def = { slotCost: (sz.w * sz.h) / Math.max(1, g.n) };
+        const tile = itemTile(g.id, g.n, {
+          tag: t('ui.inv.slotCost', { n: (def.slotCost || 1) * g.n }) + ' · ' + t('ui.inv.tag.pickup'),
+          onclick: () => { this._moveGroundToBackpack(raid, entry.index); this.openRaidInventory(raid); },
+        });
+        tile.setAttribute('draggable', 'true');
+        tile.dataset.from = 'ground';
+        tile.dataset.index = String(entry.index);
+        tile.addEventListener('dragstart', (e) => setDragData(e, { from: 'ground', index: entry.index }));
+        lootGrid.appendChild(tile);
+      }
+      lootPane.appendChild(lootGrid);
+      body.appendChild(bagPane);
+      body.appendChild(lootPane);
+      wrap.appendChild(body);
+
+      const eq = h('div', { class: 'equip-row' });
+      p.weapons.forEach((w, i) => { if (w) eq.appendChild(h('div', { class: 'eq', text: t('ui.inv.equip.weapon', { slot: i + 1, name: iname(w.id) }) })); });
+      if (p.armor) eq.appendChild(h('div', { class: 'eq', text: t('ui.inv.equip.armor', { durability: Math.round(p.armor.durability) }) }));
+      wrap.appendChild(eq);
+      wrap.appendChild(navBtns([[t('ui.inv.resume'), () => { this.hideAll(); G.Input.resetTouch(); raid.paused = false; raid.invOpen = false; }, 'primary']]));
+      this.root.appendChild(wrap);
+    },
+
+    _nearbyGroundLoot(raid) {
+      const radius = (G.DemoConfig && G.DemoConfig.nearbyLootRadius) || 140;
+      const out = [];
+      for (let i = 0; i < raid.groundItems.length; i++) {
+        const g = raid.groundItems[i];
+        if (g.delay > 0) continue;
+        if (U.dist(raid.player.x, raid.player.y, g.x, g.y) <= radius) out.push({ item: g, index: i });
+      }
+      return out;
+    },
+
+    _moveGroundToBackpack(raid, groundIndex) {
+      const g = raid.groundItems[groundIndex];
+      if (!g) return false;
+      const special = raid._collectDungeonItem ? raid._collectDungeonItem(g.id, g.n) : null;
+      const leftover = special ? special.leftover : raid.player.addLoot(g.id, g.n);
+      const got = special ? special.got : g.n - leftover;
+      g.n = leftover;
+      if (g.n <= 0) raid.groundItems.splice(groundIndex, 1);
+      raid._flushEquipMsgs();
+      if (got > 0) G.Audio.play('pickup', { vol: 0.5 });
+      if (leftover > 0) raid.toast(G.t('raid.toast.bagFull'));
+      return got > 0;
+    },
+
+    _moveGroundToBackpackAt(raid, groundIndex, x, y) {
+      const g = raid.groundItems[groundIndex];
+      if (!g) return false;
+      const special = raid._collectDungeonItem ? raid._collectDungeonItem(g.id, g.n) : null;
+      const leftover = special ? special.leftover : raid.player.addLootAt(g.id, g.n, x, y);
+      const got = special ? special.got : g.n - leftover;
+      g.n = leftover;
+      if (g.n <= 0) raid.groundItems.splice(groundIndex, 1);
+      raid._flushEquipMsgs();
+      if (got > 0) G.Audio.play('pickup', { vol: 0.5 });
+      if (leftover > 0) raid.toast(G.t('raid.toast.bagFull'));
+      return got > 0;
+    },
+
+    _moveBackpackToGround(raid, backpackIndex) {
+      const s = raid.player.backpack[backpackIndex];
+      if (!s) return false;
+      if (raid._dropGroundItem) raid._dropGroundItem(raid.player.x, raid.player.y, s.id, s.n, { scatter: 18 });
+      else raid.groundItems.push({ x: raid.player.x + U.rand(-18, 18), y: raid.player.y + U.rand(-18, 18), id: s.id, n: s.n, pop: 0.3, delay: 0, bob: Math.random() * 6 });
+      raid.player.backpack.splice(backpackIndex, 1);
+      return true;
+    },
+
+    _moveBackpackItem(raid, from, to) {
+      const bag = raid.player.backpack;
+      if (from == null || to == null || from < 0 || to < 0 || from >= bag.length || to >= bag.length || from === to) return false;
+      const item = bag.splice(from, 1)[0];
+      bag.splice(to, 0, item);
+      if (raid.player.ensureBackpackLayout) raid.player.ensureBackpackLayout();
+      return true;
+    },
+
+    _moveBackpackItemToCell(raid, index, x, y) {
+      const p = raid.player;
+      const s = p.backpack[index];
+      if (!s || !p.canPlaceBackpackItem || !p.canPlaceBackpackItem(s.id, x, y, index)) return false;
+      const sz = p.backpackGridSize ? p.backpackGridSize(s.id) : { w: 1, h: 1 };
+      s.x = Math.floor(x); s.y = Math.floor(y); s.w = sz.w; s.h = sz.h;
+      return true;
+    },
+
     /* ------------------------------ toast ------------------------------ */
     toast(msg) {
       let el = document.getElementById('ui-toast');
@@ -623,6 +791,21 @@
   };
 
   // ---- small builders ----
+  function setDragData(e, data) {
+    if (!e.dataTransfer) return;
+    e.dataTransfer.setData('text/plain', JSON.stringify(data));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+  function dragData(e) {
+    if (!e.dataTransfer) return {};
+    try { return JSON.parse(e.dataTransfer.getData('text/plain') || '{}'); } catch (_) { return {}; }
+  }
+  function bagCellFromEvent(grid, e, cols, rows) {
+    const r = grid.getBoundingClientRect();
+    const x = U.clamp(Math.floor(((e.clientX || r.left) - r.left) / Math.max(1, r.width) * cols), 0, cols - 1);
+    const y = U.clamp(Math.floor(((e.clientY || r.top) - r.top) / Math.max(1, r.height) * rows), 0, rows - 1);
+    return { x, y };
+  }
   function statBox(label, val) { return h('div', { class: 'statbox' }, [h('div', { class: 'sb-val', text: String(val) }), h('div', { class: 'sb-label', text: label })]); }
   function bigBtn(title, sub, cls, onclick) {
     return h('button', { class: 'menu-btn ' + (cls || ''), onclick }, [h('div', { class: 'mb-title', text: title }), h('div', { class: 'mb-sub', text: sub })]);

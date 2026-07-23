@@ -22,7 +22,7 @@
     this.weapons = [null, null];       // [{id, mag}, ...]
     this.slot = 0;
     this.reserve = {};                 // ammoType -> count
-    this.backpack = [];                // [{id, n}]
+    this.backpack = [];                // [{id, n, x, y, w, h}]
     this.dead = false;
     this.kills = 0;
     // action states
@@ -217,6 +217,7 @@
 
     takeDamage(dmg, raid, fromX, fromY) {
       if (this.dead) return;
+      if (raid && raid._playerDamageSuppressed && raid._playerDamageSuppressed()) return;
       dmg *= raid && raid._playerTakenDamageMultiplier ? raid._playerTakenDamageMultiplier() : 1;
       let dmgLeft = dmg;
       if (this.armor && this.armor.durability > 0) {
@@ -238,16 +239,103 @@
 
     // ---- inventory ----
     backpackCount() { return this.backpackUsed(); },
-    backpackLimit() { return C.BACKPACK_SLOTS + (this.backpackSlotBonus || 0); },
+    backpackCols() { return C.BACKPACK_GRID_W || C.BACKPACK_SLOTS || 8; },
+    backpackRows() { return C.BACKPACK_GRID_H || 1; },
+    backpackLimit() { return this.backpackCols() * this.backpackRows() + (this.backpackSlotBonus || 0); },
+    backpackGridSize(id) { return G.itemGridSize ? G.itemGridSize(id) : { w: 1, h: 1 }; },
+    _entryGridSize(s) {
+      const sz = this.backpackGridSize(s.id);
+      return { w: Math.max(1, s.w || sz.w || 1), h: Math.max(1, s.h || sz.h || 1) };
+    },
+    _occupiedCells(ignoreIndex) {
+      const cols = this.backpackCols(), rows = this.backpackRows();
+      const cells = Array.from({ length: rows }, () => Array(cols).fill(false));
+      for (let i = 0; i < this.backpack.length; i++) {
+        if (i === ignoreIndex) continue;
+        const s = this.backpack[i];
+        if (s.x == null || s.y == null) continue;
+        const sz = this._entryGridSize(s);
+        for (let y = s.y; y < s.y + sz.h; y++) {
+          for (let x = s.x; x < s.x + sz.w; x++) {
+            if (y >= 0 && y < rows && x >= 0 && x < cols) cells[y][x] = true;
+          }
+        }
+      }
+      return cells;
+    },
+    canPlaceBackpackItem(id, x, y, ignoreIndex) {
+      const sz = this.backpackGridSize(id);
+      const cols = this.backpackCols(), rows = this.backpackRows();
+      x = Math.floor(x); y = Math.floor(y);
+      if (x < 0 || y < 0 || x + sz.w > cols || y + sz.h > rows) return false;
+      const cells = this._occupiedCells(ignoreIndex);
+      for (let yy = y; yy < y + sz.h; yy++) {
+        for (let xx = x; xx < x + sz.w; xx++) if (cells[yy][xx]) return false;
+      }
+      return true;
+    },
+    findBackpackSpot(id, ignoreIndex) {
+      const cols = this.backpackCols(), rows = this.backpackRows();
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) if (this.canPlaceBackpackItem(id, x, y, ignoreIndex)) return { x, y };
+      }
+      return null;
+    },
+    ensureBackpackLayout() {
+      const cols = this.backpackCols(), rows = this.backpackRows();
+      for (let i = 0; i < this.backpack.length; i++) {
+        const s = this.backpack[i];
+        const sz = this.backpackGridSize(s.id);
+        s.w = sz.w; s.h = sz.h;
+        const x = s.x == null ? -1 : Math.floor(s.x);
+        const y = s.y == null ? -1 : Math.floor(s.y);
+        const inBounds = x >= 0 && y >= 0 && x + s.w <= cols && y + s.h <= rows;
+        if (inBounds && this.canPlaceBackpackItem(s.id, x, y, i)) { s.x = x; s.y = y; continue; }
+        s.x = null; s.y = null;
+        const spot = this.findBackpackSpot(s.id, i);
+        if (spot) { s.x = spot.x; s.y = spot.y; }
+      }
+    },
     backpackUsed() {
+      this.ensureBackpackLayout();
       let used = 0;
       for (const s of this.backpack) {
-        const def = G.getItem(s.id);
-        used += (def && def.slotCost ? def.slotCost : 1) * s.n;
+        if (s.x == null || s.y == null) continue;
+        const sz = this._entryGridSize(s);
+        used += sz.w * sz.h;
       }
       return used;
     },
     backpackFree() { return Math.max(0, this.backpackLimit() - this.backpackUsed()); },
+    addLootAt(id, n, x, y) {
+      const def = G.getItem(id);
+      if (!def) return n;
+      if (def.type === 'ammo') return this.addLoot(id, n);
+      this.ensureBackpackLayout();
+      const max = def.stack || 1;
+      let left = n;
+      if (max > 1) {
+        for (const s of this.backpack) {
+          if (s.id === id && s.n < max) {
+            const add = Math.min(max - s.n, left);
+            s.n += add; left -= add;
+            if (left <= 0) return 0;
+          }
+        }
+      }
+      while (left > 0 && this.canPlaceBackpackItem(id, x, y)) {
+        const add = Math.min(max, left);
+        const sz = this.backpackGridSize(id);
+        this.backpack.push({ id, n: add, x: Math.floor(x), y: Math.floor(y), w: sz.w, h: sz.h });
+        left -= add;
+        if (left > 0) {
+          const spot = this.findBackpackSpot(id);
+          if (!spot) break;
+          x = spot.x; y = spot.y;
+        }
+      }
+      return left;
+    },
     addLoot(id, n) {
       const def = G.getItem(id);
       if (!def) return n;
@@ -285,27 +373,29 @@
         }
       }
       const max = def.stack || 1;
-      const slotCost = def.slotCost || 1;
       let left = n;
+      this.ensureBackpackLayout();
       if (max > 1) {
         for (const s of this.backpack) {
           if (s.id === id && s.n < max) {
             const fitByStack = max - s.n;
-            const fitBySpace = Math.floor(this.backpackFree() / slotCost);
-            const add = Math.min(fitByStack, fitBySpace, left);
+            const add = Math.min(fitByStack, left);
             if (add > 0) { s.n += add; left -= add; }
             if (left <= 0) return 0;
-            if (fitBySpace <= 0) return left;
           }
         }
       }
-      while (left > 0 && this.backpackFree() >= slotCost) {
-        const add = Math.min(max, left, Math.floor(this.backpackFree() / slotCost));
-        this.backpack.push({ id, n: add }); left -= add;
+      while (left > 0) {
+        const spot = this.findBackpackSpot(id);
+        if (!spot) break;
+        const add = Math.min(max, left);
+        const sz = this.backpackGridSize(id);
+        this.backpack.push({ id, n: add, x: spot.x, y: spot.y, w: sz.w, h: sz.h }); left -= add;
       }
       return left; // leftover that didn't fit
     },
     removeFromBackpack(id, n) {
+      this.ensureBackpackLayout();
       for (let i = this.backpack.length - 1; i >= 0; i--) {
         if (this.backpack[i].id === id) {
           const take = Math.min(this.backpack[i].n, n);
@@ -337,8 +427,8 @@
     this.room = spawn.room;
     this.dead = false;
 
-    const wId = U.choice(tier.weapons);
-    const wdef = G.getItem(wId);
+    const wId = tier.melee ? null : U.choice(tier.weapons);
+    const wdef = wId ? G.getItem(wId) : { cls: 'melee', mag: 0, fireRate: 1000, reloadTime: 0, damage: 0, spread: 0, bulletSpeed: 0, range: 0 };
     this.weaponId = wId;
     this.mag = wdef.mag;
     this.wdef = wdef;
@@ -357,7 +447,7 @@
     this.strafeDir = U.chance(0.5) ? 1 : -1;
     this.strafeT = 0;
     this.reloadT = 0;
-    this.preferred = wdef.cls === 'shotgun' ? 130 : wdef.cls === 'pistol' ? 220 :
+    this.preferred = tier.melee ? (tier.meleeRange || 34) : wdef.cls === 'shotgun' ? 130 : wdef.cls === 'pistol' ? 220 :
       wdef.cls === 'smg' ? 200 : 280;
     this.visTimer = 0;
     this.canSee = false;
@@ -458,6 +548,7 @@
 
     _patrol(dt, raid) {
       const map = raid.map;
+      const speedMul = raid && raid._enemyMoveSpeedMultiplier ? raid._enemyMoveSpeedMultiplier() : 1;
       if (!this.target || U.dist(this.x, this.y, this.target.x, this.target.y) < 16 || this.stateT > 4) {
         // pick a new wander point inside home room
         const r = this.room;
@@ -469,7 +560,7 @@
       // move directly if visible, else just idle-rotate
       if (this._losTo(map, this.target.x, this.target.y, dt)) {
         this.angle = U.angle(this.x, this.y, this.target.x, this.target.y);
-        this._moveToward(this.target.x, this.target.y, 55, dt, map);
+        this._moveToward(this.target.x, this.target.y, 55 * speedMul, dt, map);
       } else {
         this.angle += dt * 0.6;
       }
@@ -477,12 +568,13 @@
 
     _alert(dt, raid) {
       const map = raid.map;
+      const speedMul = raid && raid._enemyMoveSpeedMultiplier ? raid._enemyMoveSpeedMultiplier() : 1;
       if (!this.lastKnown) { this.state = 'patrol'; return; }
       this.pathTimer -= dt;
       if (this.pathTimer <= 0 || !this.path) this._repath(raid, this.lastKnown.x, this.lastKnown.y);
       const moving = this._losTo(map, this.lastKnown.x, this.lastKnown.y, dt)
-        ? (this.angle = U.angle(this.x, this.y, this.lastKnown.x, this.lastKnown.y), this._moveToward(this.lastKnown.x, this.lastKnown.y, 95, dt, map), true)
-        : this._followPath(dt, raid, 95);
+        ? (this.angle = U.angle(this.x, this.y, this.lastKnown.x, this.lastKnown.y), this._moveToward(this.lastKnown.x, this.lastKnown.y, 95 * speedMul, dt, map), true)
+        : this._followPath(dt, raid, 95 * speedMul);
       if (U.dist(this.x, this.y, this.lastKnown.x, this.lastKnown.y) < 24 || !moving) {
         this.state = 'search'; this.stateT = 0;
       }
@@ -490,6 +582,7 @@
 
     _combat(dt, raid) {
       const map = raid.map, player = raid.player;
+      const speedMul = raid && raid._enemyMoveSpeedMultiplier ? raid._enemyMoveSpeedMultiplier() : 1;
       this.reactT = Math.max(0, this.reactT - dt);
       if (!this.canSee) {
         // lost sight: go investigate last known
@@ -497,6 +590,18 @@
       }
       const d = U.dist(this.x, this.y, player.x, player.y);
       this.angle = U.angle(this.x, this.y, player.x, player.y);
+      if (this.def.melee) {
+        const range = this.def.meleeRange || 34;
+        if (d > range * 0.85) {
+          const spd = this.def.speed || 104;
+          this._moveToward(player.x, player.y, spd * speedMul, dt, map);
+        }
+        if ((!raid._enemyFireSuppressed || !raid._enemyFireSuppressed()) && this.reactT <= 0 && this.fireCd <= 0 && d <= range) {
+          this.fireCd = this.def.meleeCooldown || 0.95;
+          player.takeDamage(Math.round((this.def.meleeDamage || 10) * this.damageMultiplier), raid, this.x, this.y);
+        }
+        return;
+      }
 
       // movement: keep preferred range + strafe
       let mvx = 0, mvy = 0;
@@ -509,10 +614,10 @@
       const m = Math.hypot(mvx, mvy);
       if (m > 0) { mvx /= m; mvy /= m; }
       const spd = this.tier === 'boss' ? 105 : 90;
-      this._moveToward(this.x + mvx * 100, this.y + mvy * 100, spd, dt, map);
+      this._moveToward(this.x + mvx * 100, this.y + mvy * 100, spd * speedMul, dt, map);
 
       // shooting
-      if (this.reactT <= 0 && this.fireCd <= 0 && this.reloadT <= 0) {
+      if ((!raid._enemyFireSuppressed || !raid._enemyFireSuppressed()) && this.reactT <= 0 && this.fireCd <= 0 && this.reloadT <= 0) {
         if (this.mag <= 0) { this.reloadT = this.wdef.reloadTime; return; }
         this._shoot(raid, player, d);
       }
@@ -520,10 +625,11 @@
 
     _search(dt, raid) {
       const map = raid.map;
+      const speedMul = raid && raid._enemyMoveSpeedMultiplier ? raid._enemyMoveSpeedMultiplier() : 1;
       if (this.lastKnown && U.dist(this.x, this.y, this.lastKnown.x, this.lastKnown.y) > 24) {
         this.pathTimer -= dt;
         if (this.pathTimer <= 0 || !this.path) this._repath(raid, this.lastKnown.x, this.lastKnown.y);
-        if (!this._followPath(dt, raid, 80)) this.lastKnown = null;
+        if (!this._followPath(dt, raid, 80 * speedMul)) this.lastKnown = null;
       } else {
         // look around for a while then give up
         this.angle += dt * 1.4 * this.strafeDir;
@@ -542,9 +648,10 @@
       // floor keeps enemies from being point-blank lasers (~5° min half-angle)
       const spread = Math.max(0.09, (1 - this.accuracy) * 0.5 * distFactor + def.spread * 0.5);
       const pellets = def.pellets || 1;
+      const bulletSpeedMul = raid && raid._enemyProjectileSpeedMultiplier ? raid._enemyProjectileSpeedMultiplier() : 1;
       for (let i = 0; i < pellets; i++) {
         const a = this.angle + U.rand(-spread, spread);
-        raid.bullets.push(G.makeBullet(mx, my, a, def.bulletSpeed * 0.85, Math.round(def.damage * this.damageMultiplier), 'enemy', { range: def.range, color: '#ff7b5a' }));
+        raid.bullets.push(G.makeBullet(mx, my, a, def.bulletSpeed * 0.85 * bulletSpeedMul, Math.round(def.damage * this.damageMultiplier), 'enemy', { range: def.range, color: '#ff7b5a' }));
       }
       raid.particles.muzzle(mx, my, this.angle);
       G.Audio.play('enemy_shoot', { vol: U.clamp(1 - d / 900, 0.15, 0.6) });

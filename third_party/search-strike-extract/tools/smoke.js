@@ -79,6 +79,20 @@ let pass = 0, fail = 0;
 function ok(name, fn) { try { fn(); pass++; console.log('  ✓', name); } catch (e) { fail++; console.error('  ✗', name, '\n   ', e.stack || e); } }
 
 const ctx = fakeCtx();
+function collectDomText(el) {
+  if (!el) return '';
+  let out = el._text || '';
+  for (const c of el.children || []) out += collectDomText(c);
+  return out;
+}
+function collectByClass(el, cls, out) {
+  out = out || [];
+  if (!el) return out;
+  const classes = String(el.className || '').split(/\s+/);
+  if (classes.indexOf(cls) >= 0) out.push(el);
+  for (const c of el.children || []) collectByClass(c, cls, out);
+  return out;
+}
 
 console.log('\n[1] Map generation');
 ok('all locations generate with spawn/extracts/enemies', () => {
@@ -110,7 +124,7 @@ ok('demo room map generates a short main path with portals', () => {
     if (!m.portals || m.portals.length < (m.roomGraph.mainRoomIds.length - 1) * 2) throw new Error('not enough portals');
     if (m.pxW * m.pxH >= loc.gridW * loc.gridH * G.Config.TILE * G.Config.TILE) throw new Error('demo room map not smaller than base location');
     if (m.rooms.some(r => r.w > G.DemoConfig.roomTileW || r.h > G.DemoConfig.roomTileH)) throw new Error('demo rooms are too large');
-    if (Math.max(m.w, m.h) > 54 || Math.min(m.w, m.h) > 34) throw new Error('demo room map bounds are not compact');
+    if (Math.max(m.w, m.h) > 74 || Math.min(m.w, m.h) > 46) throw new Error('demo room map bounds are not compact');
     const spawnRoom = m.rooms.find(r => r.kind === 'spawn');
     const extractRoom = m.rooms.find(r => r.kind === 'extract');
     if (!spawnRoom || !extractRoom) throw new Error('missing spawn/extract room');
@@ -173,6 +187,12 @@ ok('demo room waves scale by room role and path depth', () => {
   const extractRoom = mainRooms[mainRooms.length - 1];
   if (extractRoom.waveCount !== G.DemoConfig.roomExtractWaveCount) throw new Error('extract wave count not using config');
   if (extractRoom.waveSize !== G.DemoConfig.roomExtractWaveSize) throw new Error('extract wave size not using config');
+});
+ok('demo room size leaves enough combat space', () => {
+  if (G.DemoConfig.roomTileW < 12 || G.DemoConfig.roomTileH < 9) throw new Error('demo room tiles are still too small');
+  const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
+  const m = G.MapGen.generate(loc, { demo: true });
+  if (Math.max(m.w, m.h) > 74 || Math.min(m.w, m.h) > 46) throw new Error('larger demo room map exceeded compact bounds');
 });
 
 console.log('\n[2] Profile / economy');
@@ -419,6 +439,75 @@ ok('demo normal portal immediately moves player to target room', () => {
   if (!here || here.id !== target.id) throw new Error('portal did not move player to target room');
   if (raid.dungeon.portalCooldown <= 0) throw new Error('portal cooldown not set');
 });
+ok('demo combat room entry grants grace and safe enemy spacing', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const first = raid.map.portals.find(p => {
+    const target = raid.map.rooms.find(r => r.id === p.toRoomId);
+    return target && target.kind === 'combat';
+  });
+  if (!first) throw new Error('no combat portal generated');
+  const target = raid.map.rooms.find(r => r.id === first.toRoomId);
+  raid.player.x = first.x; raid.player.y = first.y;
+  raid._updatePortals(1);
+  if (raid.dungeon.roomEntryGrace <= 0) throw new Error('portal entry grace was not set');
+  const st = raid._roomState(target.id);
+  if (!st.waveWarning || st.waveWarning.kind !== 'wave') throw new Error('combat room did not start with a wave warning');
+  const hp = raid.player.hp;
+  raid.player.takeDamage(50, raid, raid.player.x + 20, raid.player.y);
+  if (raid.player.hp !== hp) throw new Error('entry grace did not suppress player damage');
+  if (raid.enemies.some(e => !e.dead && e.room && e.room.id === target.id)) throw new Error('combat room spawned enemies before countdown ended');
+  raid._updateRoomCombat(G.DemoConfig.roomWaveWarningTime + 0.1);
+  const safeRadius = G.DemoConfig.roomSpawnSafeRadius;
+  const availableFar = raid.map.enemySpawns
+    .filter(s => s.roomId === target.id)
+    .some(s => G.Utils.dist(s.x, s.y, raid.player.x, raid.player.y) >= safeRadius);
+  const alive = raid.enemies.filter(e => !e.dead && e.room && e.room.id === target.id);
+  if (!alive.length) throw new Error('combat room did not spawn enemies');
+  if (target.pathIndex <= 1 && alive.some(e => e.tier !== 'beast')) throw new Error('first combat room spawned ranged enemies');
+  if (availableFar && alive.some(e => G.Utils.dist(e.x, e.y, raid.player.x, raid.player.y) < safeRadius)) {
+    throw new Error('combat room spawned an enemy inside safe radius');
+  }
+});
+ok('demo basic room spawns melee enemies instead of defaulting to ranged', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const combat = raid.map.rooms.find(r => r.kind === 'combat');
+  if (!combat) throw new Error('no combat room generated');
+  const oldRanged = G.DemoConfig.roomRangedChance;
+  G.DemoConfig.roomRangedChance = 0;
+  raid.enemies = [];
+  raid._spawnEnemyInRoom(combat.id, 0);
+  G.DemoConfig.roomRangedChance = oldRanged;
+  if (!raid.enemies.length) throw new Error('manual room spawn failed');
+  if (raid.enemies[0].tier !== 'beast' || !raid.enemies[0].def.melee) throw new Error('basic room spawn did not use melee baseline');
+  raid.enemies[0].takeDamage(999, raid, raid.player.x, raid.player.y);
+  if (raid.groundItems.some(g => !g.id)) throw new Error('melee enemy dropped an invalid item');
+});
+ok('demo first combat room is survivable for the first three seconds', () => {
+  let deaths = 0;
+  let worstHp = Infinity;
+  for (let i = 0; i < 20; i++) {
+    const carried = G.Profile.scavKit();
+    carried.demo = true;
+    const raid = new G.Raid(G.Locations[0], carried);
+    raid.onCurseChoice = () => {};
+    const first = raid.map.portals.find(p => {
+      const target = raid.map.rooms.find(r => r.id === p.toRoomId);
+      return target && target.kind === 'combat';
+    });
+    if (!first) throw new Error('no first combat portal generated');
+    raid.player.x = first.x; raid.player.y = first.y;
+    raid._updatePortals(1);
+    for (let t = 0; t < 180 && !raid.result; t++) raid.update(1 / 60, 800, 600);
+    worstHp = Math.min(worstHp, raid.player.hp);
+    if (raid.player.dead || (raid.result && raid.result.outcome === 'failed')) deaths++;
+  }
+  if (deaths) throw new Error('first combat room deaths in 3s: ' + deaths);
+  if (worstHp < 60) throw new Error('first combat room left too little hp: ' + worstHp);
+});
 ok('demo combat room locks portals until waves are cleared', () => {
   const carried = G.Profile.scavKit();
   carried.demo = true;
@@ -437,7 +526,7 @@ ok('demo combat room locks portals until waves are cleared', () => {
   }
   for (const e of raid.enemies) if (e.room && e.room.id === combat.id) e.dead = true;
   const st = raid._roomState(combat.id);
-  st.wavesRemaining = 0; st.activeWave = true;
+  st.wavesRemaining = 0; st.activeWave = true; st.waveWarning = null;
   raid._updateRoomCombat(0.1);
   if (!raid._roomPortalsOpen(combat.id)) throw new Error('room did not unlock after waves cleared');
 });
@@ -451,14 +540,18 @@ ok('demo cleared room revive timer spawns more monsters', () => {
   raid._enterRoom(combat);
   for (const e of raid.enemies) if (e.room && e.room.id === combat.id) e.dead = true;
   const st = raid._roomState(combat.id);
-  st.wavesRemaining = 0; st.activeWave = true;
+  st.wavesRemaining = 0; st.activeWave = true; st.waveWarning = null;
   raid._updateRoomCombat(0.1);
   const before = raid.enemies.filter(e => !e.dead && e.room && e.room.id === combat.id).length;
   st.reviveTimer = 0;
   raid._updateRoomCombat(0.1);
+  if (!st.waveWarning || st.waveWarning.kind !== 'revive') throw new Error('revive timer did not start a warning');
+  if (!st.cleared || !raid._roomPortalsOpen(combat.id)) throw new Error('revive warning locked an already-cleared room');
+  raid._updateRoomCombat(G.DemoConfig.roomWaveWarningTime + 0.1);
   const after = raid.enemies.filter(e => !e.dead && e.room && e.room.id === combat.id).length;
   if (after <= before) throw new Error('revive timer did not spawn monsters');
-  if (st.cleared || !st.activeWave) throw new Error('revived monsters were not treated as an active wave');
+  if (!st.cleared || st.activeWave) throw new Error('revived monsters should not relock the room as an active wave');
+  if (!raid._roomPortalsOpen(combat.id)) throw new Error('revived monsters locked the portals');
   st.reviveTimer = 0;
   raid._updateRoomCombat(999);
   const stacked = raid.enemies.filter(e => !e.dead && e.room && e.room.id === combat.id).length;
@@ -466,6 +559,39 @@ ok('demo cleared room revive timer spawns more monsters', () => {
   for (const e of raid.enemies) if (e.room && e.room.id === combat.id) e.dead = true;
   raid._updateRoomCombat(0.1);
   if (!st.cleared) throw new Error('revive wave did not clear after monsters died');
+});
+ok('demo revive monsters do not lock exits or chase through portals', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const combat = raid.map.rooms.find(r => r.kind === 'combat');
+  const cc = raid.map.tileCenter(combat.cx, combat.cy);
+  raid.player.x = cc.x; raid.player.y = cc.y;
+  raid._enterRoom(combat);
+  const st = raid._roomState(combat.id);
+  st.started = true;
+  st.cleared = true;
+  st.activeWave = false;
+  st.wavesRemaining = 0;
+  st.waveWarning = null;
+  st.reviveTimer = 0;
+  raid._updateRoomCombat(0.1);
+  raid._updateRoomCombat(G.DemoConfig.roomWaveWarningTime + 0.1);
+  const revived = raid.enemies.filter(e => !e.dead && e.room && e.room.id === combat.id);
+  if (!revived.length) throw new Error('no revived monsters spawned');
+  if (!raid._roomPortalsOpen(combat.id)) throw new Error('revived monsters locked room exits');
+  for (const e of revived) {
+    e.state = 'combat';
+    e.lastKnown = { x: raid.player.x, y: raid.player.y };
+    e.canSee = true;
+  }
+  const out = raid.map.portals.find(p => p.fromRoomId === combat.id);
+  const target = raid.map.rooms.find(r => r.id === out.toRoomId);
+  raid.player.x = out.x; raid.player.y = out.y;
+  raid._updatePortals(1);
+  const here = raid._roomAt(raid.player.x, raid.player.y);
+  if (!here || here.id !== target.id) throw new Error('player could not leave a revive room');
+  if (revived.some(e => e.state === 'combat' || e.lastKnown || e.canSee)) throw new Error('revived monsters kept chasing after portal transfer');
 });
 ok('demo gold is dungeon currency and opens paid portal after standing payment', () => {
   let raid = null, paidPortal = null;
@@ -561,6 +687,24 @@ ok('demo pressure spawns reinforcements with scaled stats', () => {
   const e = raid.enemies[0];
   if (e.maxHp <= G.EnemyTiers[e.tier].hp) throw new Error('spawned enemy hp was not scaled');
 });
+ok('demo enemy movement and projectile speeds use slower demo multipliers', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  if (raid._enemyMoveSpeedMultiplier() >= 1) throw new Error('enemy move multiplier was not reduced');
+  if (raid._enemyProjectileSpeedMultiplier() >= 1) throw new Error('enemy projectile multiplier was not reduced');
+  raid.bullets = [];
+  raid._spawnEnemyFromPoint({ x: raid.player.x + 220, y: raid.player.y, tier: 'scav', room: null }, 'scav');
+  const e = raid.enemies[raid.enemies.length - 1];
+  e.angle = G.Utils.angle(e.x, e.y, raid.player.x, raid.player.y);
+  e.mag = 1;
+  e._shoot(raid, raid.player, G.Utils.dist(e.x, e.y, raid.player.x, raid.player.y));
+  const b = raid.bullets.find(x => x.owner === 'enemy');
+  if (!b) throw new Error('enemy did not fire a test bullet');
+  const bulletSpeed = Math.hypot(b.vx, b.vy);
+  const expected = e.wdef.bulletSpeed * 0.85 * G.DemoConfig.enemyProjectileSpeedMultiplier;
+  if (Math.abs(bulletSpeed - expected) > 0.001) throw new Error('enemy bullet speed multiplier not applied');
+});
 ok('demo curse choice triggers after kill threshold and pauses raid', () => {
   const carried = G.Profile.scavKit();
   carried.demo = true;
@@ -642,6 +786,81 @@ ok('demo skill selection upgrades projectiles without reward multiplier', () => 
   raid.player.tryShoot(raid);
   if (raid.bullets.filter(b => b.owner === 'player').length !== 2) throw new Error('projectile bonus did not add a bullet');
 });
+ok('demo in-raid backpack pauses and supports nearby loot transfer', () => {
+  const press = (raid, key) => {
+    G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
+    G.Input._pressed.add(key);
+    raid.update(1 / 60, 800, 600);
+    G.Input._pressed.clear();
+  };
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  let opened = 0;
+  G.UI.init({ startRaid() {}, startDemoRaid() {}, toHub() {} });
+  raid.onInventory = () => { opened++; G.UI.openRaidInventory(raid); };
+  raid.groundItems.push({ x: raid.player.x + 20, y: raid.player.y, id: 'v_doc', n: 1, pop: 0, delay: 0, bob: 0 });
+  raid.groundItems.push({ x: raid.player.x + 400, y: raid.player.y, id: 'v_gpu', n: 1, pop: 0, delay: 0, bob: 0 });
+  press(raid, 'tab');
+  if (!raid.paused || !raid.invOpen || opened !== 1) throw new Error('Tab did not pause and open raid inventory');
+  const nearby = G.UI._nearbyGroundLoot(raid);
+  if (nearby.length !== 1 || nearby[0].item.id !== 'v_doc') throw new Error('nearby loot filter did not isolate close drops');
+  if (!G.UI._moveGroundToBackpack(raid, nearby[0].index)) throw new Error('nearby loot did not move into backpack');
+  if (!raid.player.backpack.some(s => s.id === 'v_doc')) throw new Error('backpack missing transferred loot');
+  if (raid.groundItems.some(g => g.id === 'v_doc')) throw new Error('ground loot was not removed after pickup');
+  const beforeGround = raid.groundItems.length;
+  const bagIndex = raid.player.backpack.findIndex(s => s.id === 'v_doc');
+  if (!G.UI._moveBackpackToGround(raid, bagIndex)) throw new Error('backpack item did not drop to ground');
+  if (raid.groundItems.length !== beforeGround + 1) throw new Error('dropped backpack item did not create ground loot');
+});
+ok('demo in-raid backpack can reorder items without changing slot usage', () => {
+  const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  raid.player.backpack = [{ id: 'v_cash', n: 1 }, { id: 'v_doc', n: 1 }, { id: 'v_gpu', n: 1 }];
+  const used = raid.player.backpackUsed();
+  if (!G.UI._moveBackpackItem(raid, 2, 0)) throw new Error('backpack reorder returned false');
+  if (raid.player.backpack[0].id !== 'v_gpu') throw new Error('backpack item did not move to target position');
+  if (raid.player.backpackUsed() !== used) throw new Error('reorder changed backpack slot usage');
+});
+ok('demo in-raid backpack supports explicit grid placement', () => {
+  const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  raid.player.backpack = [];
+  raid.groundItems = [{ x: raid.player.x, y: raid.player.y, id: 'v_doc', n: 1, pop: 0, delay: 0, bob: 0 }];
+  if (!G.UI._moveGroundToBackpackAt(raid, 0, 3, 2)) throw new Error('ground loot did not place into requested cell');
+  const s = raid.player.backpack.find(s => s.id === 'v_doc');
+  if (!s || s.x !== 3 || s.y !== 2 || s.w !== 2 || s.h !== 1) throw new Error('grid placement shape/position wrong');
+  if (G.UI._moveBackpackItemToCell(raid, 0, 7, 5)) throw new Error('oversized item moved out of bounds');
+});
+ok('demo searched resources drop overflow loot at the resource point', () => {
+  const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  raid.player.backpack = [];
+  for (let i = 0; i < G.Config.BACKPACK_SLOTS; i++) raid.player.backpack.push({ id: 'v_cash', n: 1 });
+  const cont = { x: raid.player.x + 220, y: raid.player.y + 40, items: [{ id: 'v_gpu', n: 1 }], searched: false };
+  raid.groundItems = [];
+  raid._collect(cont);
+  if (!cont.searched || cont.items.length) throw new Error('full-bag resource was not completed');
+  const g = raid.groundItems.find(g => g.id === 'v_gpu');
+  if (!g) throw new Error('overflow loot was not dropped');
+  if (G.Utils.dist(g.x, g.y, cont.x, cont.y) > 40) throw new Error('overflow did not pop from resource point');
+});
+ok('rare and epic ground loot have quality beam colors', () => {
+  const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  if (raid._groundQualityBeamColor({ id: 'v_cash' }) !== null) throw new Error('uncommon loot should not get a quality beam');
+  if (raid._groundQualityBeamColor({ id: 'v_doc' }) !== G.RARITY_COLOR.rare) throw new Error('rare beam color missing');
+  if (raid._groundQualityBeamColor({ id: 'v_gpu' }) !== G.RARITY_COLOR.epic) throw new Error('epic beam color missing');
+});
+ok('demo monster drops use test loot pool without ammo', () => {
+  const slotCosts = new Set((G.DemoLootDrops || []).map(row => {
+    const def = G.getItem(row.id);
+    return def && def.type !== 'key' ? (def.slotCost || 1) : null;
+  }).filter(Boolean));
+  for (const n of [1, 2, 3]) if (!slotCosts.has(n)) throw new Error('demo loot pool missing ' + n + '-slot item');
+  if ((G.DemoLootDrops || []).some(row => G.getItem(row.id).type === 'ammo')) throw new Error('demo loot pool contains ammo');
+  const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  raid.groundItems = [];
+  const e = new G.Enemy({ x: raid.player.x + 100, y: raid.player.y, tier: 'scav', room: null });
+  e.takeDamage(999, raid, raid.player.x, raid.player.y);
+  if (raid.groundItems.some(g => G.getItem(g.id).type === 'ammo')) throw new Error('demo monster dropped ammo');
+});
 ok('demo debug hotkeys cover validation shortcuts', () => {
   const press = (raid, key) => {
     G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
@@ -692,7 +911,7 @@ ok('demo debug hotkeys cover validation shortcuts', () => {
 
 console.log('\n[6] UI screens build without error');
 ok('all UI screens & overlays render', () => {
-  const host = { startRaid() {}, toHub() {}, };
+  const host = { startRaid() {}, startDemoRaid() {}, toHub() {}, };
   G.UI.init(host);
   G.UI.showIntro();
   G.UI.showHub();
@@ -717,6 +936,23 @@ ok('all UI screens & overlays render', () => {
   demoRaid.dungeon.curseChoices = G.DemoCurses.slice(0, 2).concat(G.DemoSkills.slice(0, 1));
   demoRaid.dungeon.cursePending = true;
   G.UI.openCurseChoice(demoRaid);
+});
+ok('hub shows only demo and settings entry points', () => {
+  const host = { startRaid() {}, startDemoRaid() {}, toHub() {}, };
+  G.UI.init(host);
+  G.UI.showHub();
+  const text = collectDomText(G.UI.root);
+  const buttons = collectByClass(G.UI.root, 'menu-btn');
+  const stats = collectByClass(G.UI.root, 'statstrip');
+  if (buttons.length !== 2) throw new Error('hub should expose exactly demo and settings buttons');
+  if (stats.length !== 0) throw new Error('hub stats strip should be hidden');
+  const hiddenKeys = ['ui.hub.menu.deploy.title', 'ui.hub.menu.stash.title', 'ui.hub.menu.trader.title', 'ui.hub.menu.contracts.title'];
+  for (const key of hiddenKeys) {
+    const label = G.t(key);
+    if (label && label !== key && text.indexOf(label) >= 0) throw new Error('hub still shows hidden entry: ' + key);
+  }
+  if (text.indexOf(G.t('ui.hub.menu.demo.title')) < 0) throw new Error('demo entry missing from hub');
+  if (text.indexOf(G.t('ui.hub.menu.settings.title')) < 0) throw new Error('settings entry missing from hub');
 });
 
 console.log('\n[7] Stress: many raids back-to-back (mem/refs)');
@@ -935,11 +1171,12 @@ ok('armor upgrade with a full backpack does not lose the worn plate', () => {
   if (p.armor.id !== 'a_vest1') throw new Error('swapped armor with a full bag — the old plate would be lost');
   if (leftover !== 1) throw new Error('new plate should stay as leftover when the bag is full');
 });
-ok('backpack capacity uses item slotCost, not stack entries', () => {
+ok('backpack capacity uses 8x6 item occupancy grid', () => {
   const raid = new G.Raid(G.Locations[0], G.Profile.scavKit());
   const p = raid.player;
   p.backpack = [];
-  if (p.addLoot('v_gpu', 4) !== 0) throw new Error('four 3-slot GPUs should fit exactly in a 12-slot bag');
+  if (G.Config.BACKPACK_GRID_W !== 8 || G.Config.BACKPACK_GRID_H !== 6) throw new Error('bag grid is not 8x6');
+  if (p.addLoot('v_gpu', 36) !== 0) throw new Error('twelve 2x2 GPU stacks should fit exactly in an 8x6 bag');
   if (p.backpackCount() !== G.Config.BACKPACK_SLOTS) throw new Error('bag used slots mismatch');
   if (p.addLoot('v_cash', 1) !== 1) throw new Error('full bag accepted extra loot');
 });

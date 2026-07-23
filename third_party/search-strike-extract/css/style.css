@@ -81,6 +81,7 @@ body {
 .sb-label { font-size: 10px; color: var(--dim); letter-spacing: 1px; margin-top: 2px; }
 
 .mainmenu { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 6px; }
+.demo-hub-menu { grid-template-columns: 1fr; max-width: 620px; width: 100%; margin: 28px auto 0; }
 .menu-btn {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   padding: 20px 18px; text-align: left; cursor: pointer; color: var(--text);
@@ -90,10 +91,14 @@ body {
 .menu-btn:active { transform: translateY(0); }
 .menu-btn.primary { background: linear-gradient(135deg, #2a3a36, #1c2a27); border-color: var(--accent2); }
 .menu-btn.primary:hover { border-color: var(--accent); }
+.demo-hub-menu .menu-btn.primary { min-height: 156px; display: flex; flex-direction: column; justify-content: center; padding: 32px 30px; }
+.demo-hub-menu .menu-btn.secondary { min-height: 72px; padding: 16px 20px; }
+.demo-hub-menu .menu-btn.secondary .mb-title { font-size: clamp(14px, 3.4vw, 18px); }
 .mb-title { font-size: clamp(16px, 4.5vw, 22px); font-weight: 800; letter-spacing: 1px; }
 .mb-sub { font-size: 12px; color: var(--dim); margin-top: 4px; }
 
 .hint { font-size: 12px; color: var(--dim); background: var(--panel); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; line-height: 1.5; }
+.demo-hub-hint { max-width: 620px; width: 100%; margin: 8px auto 0; }
 
 /* ---- location cards ---- */
 .loc-grid { display: grid; gap: 12px; }
@@ -221,7 +226,52 @@ button.big.danger:hover { background: var(--red); color: #fff; }
 .inv-head { text-align: center; margin-bottom: 6px; }
 .inv-val { font-size: 13px; color: var(--dim); margin-top: 4px; }
 .inv-val b { color: var(--gold); }
+.inv-drag-hint { font-size: 11px; color: var(--dim); margin-top: 6px; }
 .overlay-screen .item-grid { width: 100%; max-width: 600px; }
+.raid-inventory-screen { justify-content: center; }
+.raid-inv-body { width: min(920px, 100%); display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
+.raid-inv-pane { min-height: 360px; background: rgba(18,22,28,0.92); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.raid-inv-pane-title { text-align: center; color: var(--text); font-weight: 900; letter-spacing: 1px; }
+.raid-inv-grid { flex: 1; align-content: start; max-width: none; min-height: 270px; border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 10px; background: rgba(0,0,0,0.16); }
+.raid-inv-grid .item { cursor: grab; }
+.raid-inv-grid .item:active { cursor: grabbing; }
+.bag-grid-occupancy {
+  display: grid;
+  grid-template-columns: repeat(var(--bag-cols), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--bag-rows), minmax(0, 1fr));
+  gap: 4px;
+  aspect-ratio: 8 / 6;
+  min-height: 0;
+  position: relative;
+}
+.bag-cell {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.025);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.bag-grid-occupancy .bag-item {
+  min-height: 0;
+  padding: 5px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+.bag-grid-occupancy .bag-item .item-ico { width: 34px; height: 34px; margin-bottom: 4px; }
+.bag-grid-occupancy .bag-item .item-name { font-size: 10px; overflow-wrap: anywhere; }
+.bag-grid-occupancy .empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.loot-pane { border-color: rgba(240,196,74,0.35); }
 .equip-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 12px; }
 .eq { font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; color: var(--text); }
 .overlay-screen .navbtns { max-width: 360px; width: 100%; }
@@ -237,6 +287,8 @@ button.big.danger:hover { background: var(--red); color: #fff; }
 .curse-reward { font-size: 13px; color: var(--green); font-weight: 800; }
 
 @media (max-width: 680px) {
+  .raid-inv-body { grid-template-columns: 1fr; }
+  .raid-inv-pane { min-height: 240px; }
   .curse-list { grid-template-columns: 1fr; }
   .curse-card { min-height: 118px; }
 }
