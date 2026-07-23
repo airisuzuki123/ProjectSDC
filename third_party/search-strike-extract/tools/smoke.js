@@ -249,6 +249,40 @@ ok('demo scroll fragments enable X normal extract', () => {
   raid.update(1 / 60, 800, 600);
   if (!result || result.outcome !== 'normal_extract') throw new Error('X did not trigger normal extract: ' + (result && result.outcome));
 });
+ok('demo extract zone starts and cancels perfect extract challenge', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  const z = raid.map.extracts[0];
+  raid.player.x = z.x; raid.player.y = z.y;
+  raid._updateExtract(0.1);
+  if (!raid.dungeon.extractionChallenge) throw new Error('perfect extract challenge did not start');
+  if (!raid.extracting || raid.extracting.total !== G.DemoConfig.perfectExtractTime) throw new Error('extracting state not bound to perfect challenge');
+  raid.player.x = z.x + z.r + 80;
+  raid._updateExtract(0.1);
+  if (raid.dungeon.extractionChallenge || raid.extracting) throw new Error('perfect extract challenge did not cancel when leaving zone');
+});
+ok('demo perfect extract succeeds after hold timer and applies bonus', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  let result = null; raid.onFinish = (r) => result = r;
+  raid.enemies = [];
+  raid.player.backpack = [{ id: 'v_cash', n: 10 }];
+  const z = raid.map.extracts[0];
+  raid.player.x = z.x; raid.player.y = z.y;
+  for (let i = 0; i < G.DemoConfig.perfectExtractTime + 2; i++) {
+    raid._updateExtract(1);
+    if (result) break;
+  }
+  if (!result || result.outcome !== 'perfect_extract') throw new Error('perfect extract did not finish: ' + (result && result.outcome));
+  if (raid.enemies.length < 1) throw new Error('perfect extract challenge did not spawn pressure enemies');
+  const base = G.getItem('v_cash').value * 10;
+  if (result.baseLootValue !== base) throw new Error('base loot wrong');
+  if (result.perfectRewardMultiplier !== G.DemoConfig.perfectExtractRewardMultiplier) throw new Error('perfect multiplier missing');
+  if (result.lootValue !== Math.round(base * G.DemoConfig.perfectExtractRewardMultiplier)) throw new Error('perfect reward not applied');
+});
 ok('demo monster pressure levels up and enrages over time', () => {
   const carried = G.Profile.scavKit();
   carried.demo = true;
@@ -343,6 +377,7 @@ ok('all UI screens & overlays render', () => {
   G.UI.showResults({ outcome: 'death', kills: 1, time: 40, lootValue: 300, items: 2, scav: true }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'normal_extract', kills: 2, time: 80, lootValue: 450, items: 3, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'normal_extract', kills: 2, time: 80, lootValue: 608, baseLootValue: 450, rewardMultiplier: 1.35, items: 3, baseItems: 3, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
+  G.UI.showResults({ outcome: 'perfect_extract', kills: 4, time: 220, lootValue: 900, baseLootValue: 600, rewardMultiplier: 1.5, perfectRewardMultiplier: 1.5, items: 4, baseItems: 4, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'failed', kills: 2, time: 80, lootValue: 0, lostLootValue: 450, items: 0, scav: true, scrollFragments: 2, requiredFragments: 4 }, { carriedValue: 0 });
   const fakeRaid = new G.Raid(G.Locations[0], G.Profile.scavKit());
   G.UI.openPause(fakeRaid);

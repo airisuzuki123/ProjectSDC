@@ -51,6 +51,7 @@
       cursePending: false,
       curseTriggers: 0,
       modifiers: defaultCurseModifiers(),
+      extractionChallenge: null,
     } : null;
     this.visited = new Uint8Array(this.map.w * this.map.h);
     this._footT = 0;
@@ -552,6 +553,7 @@
     },
 
     _updateExtract(dt) {
+      if (this.demo && this.dungeon) return this._updatePerfectExtract(dt);
       const p = this.player;
       let inZone = null;
       for (const z of this.map.extracts) {
@@ -564,6 +566,54 @@
       } else if (this.extracting) {
         this.extracting = null;
       }
+    },
+
+    _updatePerfectExtract(dt) {
+      const p = this.player;
+      const cfg = G.DemoConfig || {};
+      const d = this.dungeon;
+      let inZone = null;
+      for (const z of this.map.extracts) {
+        if (U.dist(p.x, p.y, z.x, z.y) < z.r) { inZone = z; break; }
+      }
+      if (!inZone) {
+        if (d.extractionChallenge) this.toast(G.t('raid.toast.perfectExtractCancelled'));
+        d.extractionChallenge = null;
+        this.extracting = null;
+        return;
+      }
+
+      let ch = d.extractionChallenge;
+      if (!ch || ch.zone !== inZone) {
+        ch = d.extractionChallenge = {
+          zone: inZone,
+          t: 0,
+          total: cfg.perfectExtractTime || 30,
+          spawnTimer: 0,
+        };
+        this.toast(G.t('raid.toast.perfectExtractStarted', { n: Math.round(ch.total) }));
+      }
+      this.extracting = ch;
+      ch.t += dt;
+      ch.spawnTimer -= dt;
+      while (ch.spawnTimer <= 0) {
+        this._spawnPressureEnemy();
+        ch.spawnTimer += cfg.perfectExtractSpawnInterval || 4;
+      }
+      if (ch.t >= ch.total) {
+        G.Audio.play('extract', { vol: 0.9 });
+        this._finish('perfect_extract');
+      }
+    },
+
+    _extractDuration() {
+      return this.extracting && this.extracting.total ? this.extracting.total : C.EXTRACT_TIME;
+    },
+
+    _perfectExtractRewardMultiplier() {
+      if (!this.demo) return 1;
+      const cfg = G.DemoConfig || {};
+      return cfg.perfectExtractRewardMultiplier || 1;
     },
 
     _reveal() {
@@ -632,7 +682,9 @@
       const failed = outcome === 'failed';
       const baseLootValue = this.player.lootValue();
       const baseItems = this.player.backpack.reduce((a, s) => a + s.n, 0);
-      const rewardMultiplier = this.dungeon ? this.dungeon.rewardMultiplier : 1;
+      const curseRewardMultiplier = this.dungeon ? this.dungeon.rewardMultiplier : 1;
+      const perfectRewardMultiplier = outcome === 'perfect_extract' ? this._perfectExtractRewardMultiplier() : 1;
+      const rewardMultiplier = round2(curseRewardMultiplier * perfectRewardMultiplier);
       const finalLootValue = Math.round(baseLootValue * rewardMultiplier);
       this.result = {
         outcome, kills: this.kills,
@@ -640,6 +692,8 @@
         baseLootValue,
         baseItems,
         rewardMultiplier,
+        curseRewardMultiplier,
+        perfectRewardMultiplier,
         lostLootValue: failed ? baseLootValue : 0,
         items: failed ? 0 : baseItems,
         time: Math.round(this.time), scav: this.scav,
@@ -952,11 +1006,15 @@
       const cont = this._nearestCont;
       ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = 'bold 13px monospace';
       if (this.extracting) {
-        const frac = this.extracting.t / C.EXTRACT_TIME;
+        const total = this._extractDuration();
+        const frac = this.extracting.t / total;
         ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(w / 2 - 110, h * 0.7, 220, 30);
         ctx.fillStyle = '#3aa14a'; ctx.fillRect(w / 2 - 110, h * 0.7, 220 * frac, 30);
         ctx.strokeStyle = '#9affb0'; ctx.strokeRect(w / 2 - 110, h * 0.7, 220, 30);
-        ctx.fillStyle = '#fff'; ctx.fillText(G.t('raid.prompt.extracting'), w / 2, h * 0.7 + 20);
+        const prompt = this.demo && this.dungeon && this.dungeon.extractionChallenge
+          ? G.t('raid.prompt.perfectExtracting', { n: Math.ceil(Math.max(0, total - this.extracting.t)) })
+          : G.t('raid.prompt.extracting');
+        ctx.fillStyle = '#fff'; ctx.fillText(prompt, w / 2, h * 0.7 + 20);
       } else if (p.searching) {
         // in-progress search bar
         const frac = p.searching.t / p.searching.total;

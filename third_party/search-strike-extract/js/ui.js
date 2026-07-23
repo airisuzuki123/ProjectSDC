@@ -497,6 +497,9 @@
       }
       if (result.rewardMultiplier && result.rewardMultiplier > 1) {
         lines.push([t('ui.results.rewardMultiplier'), 'x' + result.rewardMultiplier.toFixed(2)]);
+        if (result.perfectRewardMultiplier && result.perfectRewardMultiplier > 1) {
+          lines.push([t('ui.results.perfectMultiplier'), 'x' + result.perfectRewardMultiplier.toFixed(2)]);
+        }
         lines.push([t('ui.results.baseLoot'), t('ui.results.lootValue', { value: U.formatNum(result.baseLootValue || 0), items: result.baseItems || result.items })]);
       }
       if (win) {
