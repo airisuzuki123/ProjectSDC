@@ -290,6 +290,70 @@ ok('demo normal portal immediately moves player to target room', () => {
   if (!here || here.id !== target.id) throw new Error('portal did not move player to target room');
   if (raid.dungeon.portalCooldown <= 0) throw new Error('portal cooldown not set');
 });
+ok('demo combat room locks portals until waves are cleared', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const first = raid.map.portals.find(p => {
+    const target = raid.map.rooms.find(r => r.id === p.toRoomId);
+    return target && target.kind === 'combat';
+  });
+  const combat = raid.map.rooms.find(r => r.id === first.toRoomId);
+  raid._enterRoom(combat);
+  const out = raid.map.portals.find(p => p.fromRoomId === combat.id);
+  raid.player.x = out.x; raid.player.y = out.y;
+  raid._updatePortals(1);
+  if (raid._roomAt(raid.player.x, raid.player.y).id !== combat.id) {
+    throw new Error('left a locked combat room');
+  }
+  for (const e of raid.enemies) if (e.room && e.room.id === combat.id) e.dead = true;
+  const st = raid._roomState(combat.id);
+  st.wavesRemaining = 0; st.activeWave = true;
+  raid._updateRoomCombat(0.1);
+  if (!raid._roomPortalsOpen(combat.id)) throw new Error('room did not unlock after waves cleared');
+});
+ok('demo cleared room revive timer spawns more monsters', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const combat = raid.map.rooms.find(r => r.kind === 'combat');
+  const cc = raid.map.tileCenter(combat.cx, combat.cy);
+  raid.player.x = cc.x; raid.player.y = cc.y;
+  raid._enterRoom(combat);
+  for (const e of raid.enemies) if (e.room && e.room.id === combat.id) e.dead = true;
+  const st = raid._roomState(combat.id);
+  st.wavesRemaining = 0; st.activeWave = true;
+  raid._updateRoomCombat(0.1);
+  const before = raid.enemies.filter(e => !e.dead && e.room && e.room.id === combat.id).length;
+  st.reviveTimer = 0;
+  raid._updateRoomCombat(0.1);
+  const after = raid.enemies.filter(e => !e.dead && e.room && e.room.id === combat.id).length;
+  if (after <= before) throw new Error('revive timer did not spawn monsters');
+});
+ok('demo gold is dungeon currency and opens paid portal after standing payment', () => {
+  let raid = null, paidPortal = null;
+  for (let i = 0; i < 20 && !paidPortal; i++) {
+    const carried = G.Profile.scavKit();
+    carried.demo = true;
+    raid = new G.Raid(G.Locations[0], carried);
+    paidPortal = raid.map.portals.find(p => p.kind === 'gold');
+  }
+  if (!paidPortal) throw new Error('no paid portal generated in attempts');
+  const room = raid.map.rooms.find(r => r.id === paidPortal.fromRoomId);
+  const target = raid.map.rooms.find(r => r.id === paidPortal.toRoomId);
+  raid.player.x = paidPortal.x; raid.player.y = paidPortal.y;
+  raid.dungeon.currentRoomId = room.id;
+  raid._roomState(room.id).cleared = true;
+  raid._collectDungeonItem(G.DemoConfig.coinItemId, paidPortal.cost);
+  if (raid.player.backpack.some(s => s.id === G.DemoConfig.coinItemId)) throw new Error('gold entered backpack');
+  for (let i = 0; i < 120; i++) {
+    raid.player.moving = false;
+    raid._updatePortals(0.2);
+    if (raid._roomAt(raid.player.x, raid.player.y).id === target.id) break;
+  }
+  if (raid._roomAt(raid.player.x, raid.player.y).id !== target.id) throw new Error('paid portal did not transfer after payment');
+  if (raid.dungeon.gold !== 0) throw new Error('gold was not consumed');
+});
 ok('demo perfect extract succeeds after hold timer and applies bonus', () => {
   const carried = G.Profile.scavKit();
   carried.demo = true;

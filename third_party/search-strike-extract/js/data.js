@@ -47,6 +47,11 @@
     perfectExtractTime: 30,
     perfectExtractSpawnInterval: 4,
     perfectExtractRewardMultiplier: 1.50,
+    roomReviveInterval: 14,
+    roomWaveBaseCount: 3,
+    coinItemId: 'd_gold_coin',
+    coinPortalBaseCost: 3,
+    coinPortalPayInterval: 0.18,
     monsterLevelInterval: 45,
     monsterLevelMax: 6,
     monsterHpPerLevel: 0.15,
@@ -174,6 +179,7 @@
   def({ id: 'v_canned', name: 'Canned Food', type: 'valuable', value: 35, rarity: 'common', color: '#9aa055', stack: 12, slotCost: 1 });
   def({ id: 'v_water', name: 'Water Bottle', type: 'valuable', value: 28, rarity: 'common', color: '#5ab0d0', stack: 12, slotCost: 1 });
   def({ id: 'd_scroll_fragment', name: 'Extraction Scroll Fragment', type: 'key', value: 0, rarity: 'rare', color: '#8fd6ff', stack: 99 });
+  def({ id: 'd_gold_coin', name: 'Dungeon Gold Coin', type: 'key', value: 0, rarity: 'uncommon', color: '#f0c44a', stack: 99 });
 
   G.Items = ITEMS;
   G.getItem = (id) => ITEMS[id];

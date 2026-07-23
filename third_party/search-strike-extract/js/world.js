@@ -377,6 +377,7 @@
     const seed = (Math.random() * 1e9) | 0;
     const rng = G.RNG(seed);
     const T = Config.TILE;
+    const cfg = G.DemoConfig || {};
     const roomW = 10, roomH = 8, gap = 4, margin = 3;
     const mainCount = rng.int(4, 5);
     const hasReward = rng.chance(0.65);
@@ -401,6 +402,8 @@
         cx: x + Math.floor(roomW / 2),
         cy: y + Math.floor(roomH / 2),
         kind, pathIndex,
+        waveCount: kind === 'spawn' ? 0 : kind === 'reward' ? 2 : kind === 'extract' ? 2 : 1 + Math.min(2, pathIndex),
+        waveSize: kind === 'spawn' ? 0 : kind === 'reward' ? 4 : kind === 'extract' ? 5 : (cfg.roomWaveBaseCount || 3) + Math.min(3, pathIndex),
       };
       carveRect(r.x, r.y, r.w, r.h);
       rooms.push(r);
@@ -421,7 +424,9 @@
 
     for (let i = 0; i < grid.length; i++) if (grid[i] === 0) shade[i] = (rng() * 4) | 0;
 
-    const addPortal = (from, to, tx, ty, dir) => {
+    let rewardEntryCost = 0;
+    const addPortal = (from, to, tx, ty, dir, opts) => {
+      opts = opts || {};
       const c = map_tileCenter(tx, ty, T);
       portals.push({
         id: 'portal_' + portals.length,
@@ -429,7 +434,9 @@
         fromRoomId: from.id,
         toRoomId: to.id,
         dir,
-        kind: 'normal',
+        kind: opts.kind || 'normal',
+        cost: opts.cost || 0,
+        paid: 0,
       });
     };
     for (let i = 0; i < mainRooms.length - 1; i++) {
@@ -439,7 +446,8 @@
     }
     if (rewardRoom) {
       const anchor = mainRooms.find(r => r.id === rewardRoom.anchorRoomId);
-      addPortal(anchor, rewardRoom, anchor.cx, anchor.y + anchor.h - 1, 'south');
+      rewardEntryCost = (cfg.coinPortalBaseCost || 3) + Math.max(0, anchor.pathIndex - 1);
+      addPortal(anchor, rewardRoom, anchor.cx, anchor.y + anchor.h - 1, 'south', { kind: 'gold', cost: rewardEntryCost });
       addPortal(rewardRoom, anchor, rewardRoom.cx, rewardRoom.y, 'north');
     }
 
@@ -484,6 +492,24 @@
       } else if (r.kind === 'combat') {
         placeAtRoom(r, rng.chance(0.5) ? 'crate' : 'locker');
         if (rng.chance(0.35)) placeAtRoom(r, 'medbox');
+      }
+    }
+    if (rewardRoom && rewardEntryCost > 0) {
+      const anchor = mainRooms.find(r => r.id === rewardRoom.anchorRoomId);
+      const before = mainRooms.filter(r => r.pathIndex <= anchor.pathIndex);
+      let remaining = rewardEntryCost;
+      for (const r of before) {
+        let c = map.containers.find(x => x.roomId === r.id);
+        if (!c) { placeAtRoom(r, 'crate'); c = map.containers.find(x => x.roomId === r.id); }
+        if (!c) continue;
+        const add = Math.min(2, remaining);
+        c.items.push({ id: cfg.coinItemId || 'd_gold_coin', n: add });
+        remaining -= add;
+        if (remaining <= 0) break;
+      }
+      if (remaining > 0 && before.length) {
+        const c = map.containers.find(x => x.roomId === before[0].id);
+        if (c) c.items.push({ id: cfg.coinItemId || 'd_gold_coin', n: remaining });
       }
     }
 

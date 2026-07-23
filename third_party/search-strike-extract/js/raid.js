@@ -53,6 +53,9 @@
       modifiers: defaultCurseModifiers(),
       extractionChallenge: null,
       currentRoomId: null,
+      roomStates: {},
+      gold: 0,
+      portalPayment: null,
       portalCooldown: 0,
     } : null;
     this.visited = new Uint8Array(this.map.w * this.map.h);
@@ -96,6 +99,11 @@
     },
 
     _spawnEnemies() {
+      if (this.demo && this.dungeon && this.map.roomGraph) {
+        const room = this._roomAt(this.player.x, this.player.y);
+        if (room) this._enterRoom(room);
+        return;
+      }
       for (const s of this.map.enemySpawns) this._spawnEnemyFromPoint(s);
     },
 
@@ -170,6 +178,7 @@
       for (const e of this.enemies) e.update(dt, this);
       this._updateBullets(dt);
       this._updateGround(dt);
+      this._updateRoomCombat(dt);
       this._updatePortals(dt);
       this._updateExtract(dt);
       this.particles.update(dt);
@@ -364,6 +373,12 @@
     _collectDungeonItem(id, n) {
       if (!this.demo || !this.dungeon) return null;
       const cfg = G.DemoConfig || {};
+      if (id === (cfg.coinItemId || 'd_gold_coin')) {
+        const got = Math.max(0, n);
+        this.dungeon.gold += got;
+        if (got > 0) this.toast(G.t('raid.toast.goldPicked', { n: got, total: this.dungeon.gold }));
+        return { got, leftover: 0 };
+      }
       if (id !== cfg.scrollItemId) return null;
       const before = this.dungeon.scrollFragments;
       const max = this.dungeon.requiredFragments;
@@ -582,10 +597,22 @@
       d.portalCooldown = Math.max(0, (d.portalCooldown || 0) - dt);
       const room = this._roomAt(this.player.x, this.player.y);
       if (room) d.currentRoomId = room.id;
-      if (!room || d.portalCooldown > 0) return;
+      if (!room || d.portalCooldown > 0) { d.portalPayment = null; return; }
+      let nearLockedOrPaying = false;
       for (const p of this.map.portals) {
         if (p.fromRoomId !== room.id) continue;
         if (U.dist(this.player.x, this.player.y, p.x, p.y) >= p.r) continue;
+        if (!this._roomPortalsOpen(room.id)) {
+          nearLockedOrPaying = true;
+          d.portalPayment = null;
+          this.toast(G.t('raid.toast.roomLocked'));
+          return;
+        }
+        if (p.kind === 'gold' && p.paid < p.cost) {
+          nearLockedOrPaying = true;
+          this._updateGoldPortalPayment(p, dt);
+          if (p.paid < p.cost) return;
+        }
         const target = this.map.rooms.find(r => r.id === p.toRoomId);
         if (!target) return;
         const c = this.map.tileCenter(target.cx, target.cy);
@@ -596,9 +623,122 @@
         this.extracting = null;
         if (d.extractionChallenge) d.extractionChallenge = null;
         this.cam.x = this.player.x; this.cam.y = this.player.y;
+        this._enterRoom(target);
         this.toast(G.t('raid.toast.portalEntered'));
         return;
       }
+      if (!nearLockedOrPaying) d.portalPayment = null;
+    },
+
+    _enterRoom(room) {
+      if (!this.demo || !this.dungeon || !room) return;
+      const d = this.dungeon;
+      d.currentRoomId = room.id;
+      const st = this._roomState(room.id);
+      if (!st.started) {
+        st.started = true;
+        if (st.wavesRemaining > 0) this._spawnRoomWave(room.id);
+        else st.cleared = true;
+      }
+    },
+
+    _roomState(roomId) {
+      const d = this.dungeon;
+      if (!d.roomStates[roomId]) {
+        const room = this.map.rooms.find(r => r.id === roomId) || {};
+        d.roomStates[roomId] = {
+          started: false,
+          cleared: room.kind === 'spawn',
+          wavesRemaining: room.waveCount || 0,
+          activeWave: false,
+          reviveTimer: (G.DemoConfig && G.DemoConfig.roomReviveInterval) || 14,
+        };
+      }
+      return d.roomStates[roomId];
+    },
+
+    _updateRoomCombat(dt) {
+      if (!this.demo || !this.dungeon || !this.map.roomGraph) return;
+      const room = this._roomAt(this.player.x, this.player.y);
+      if (!room) return;
+      if (room.id !== this.dungeon.currentRoomId) this._enterRoom(room);
+      const st = this._roomState(room.id);
+      if (!st.started) this._enterRoom(room);
+      const alive = this._aliveEnemiesInRoom(room.id);
+      if (st.activeWave && alive <= 0) {
+        st.activeWave = false;
+        if (st.wavesRemaining > 0) this._spawnRoomWave(room.id);
+        else {
+          st.cleared = true;
+          st.reviveTimer = (G.DemoConfig && G.DemoConfig.roomReviveInterval) || 14;
+          this.toast(G.t('raid.toast.roomCleared'));
+        }
+      } else if (st.cleared) {
+        st.reviveTimer -= dt;
+        if (st.reviveTimer <= 0) {
+          this._spawnRoomRevive(room.id);
+          st.reviveTimer += (G.DemoConfig && G.DemoConfig.roomReviveInterval) || 14;
+        }
+      }
+    },
+
+    _spawnRoomWave(roomId) {
+      const st = this._roomState(roomId);
+      const room = this.map.rooms.find(r => r.id === roomId);
+      if (!room || st.wavesRemaining <= 0) return false;
+      const count = room.waveSize || 3;
+      for (let i = 0; i < count; i++) this._spawnEnemyInRoom(roomId, room.kind === 'reward' ? 0.35 : room.pathIndex >= 2 ? 0.2 : 0);
+      st.wavesRemaining--;
+      st.activeWave = true;
+      return true;
+    },
+
+    _spawnRoomRevive(roomId) {
+      const room = this.map.rooms.find(r => r.id === roomId);
+      if (!room || room.kind === 'spawn') return false;
+      const count = Math.max(1, Math.ceil((room.waveSize || 3) / 2));
+      for (let i = 0; i < count; i++) this._spawnEnemyInRoom(roomId, room.kind === 'reward' ? 0.3 : 0.12);
+      this.toast(G.t('raid.toast.roomRevive'));
+      return true;
+    },
+
+    _spawnEnemyInRoom(roomId, eliteChance) {
+      const spawns = (this.map.enemySpawns || []).filter(s => s.roomId === roomId);
+      if (!spawns.length) return false;
+      const src = U.choice(spawns);
+      const tier = U.chance(eliteChance || 0) ? 'raider' : 'scav';
+      this._spawnEnemyFromPoint(src, tier);
+      return true;
+    },
+
+    _aliveEnemiesInRoom(roomId) {
+      return this.enemies.filter(e => !e.dead && e.room && e.room.id === roomId).length;
+    },
+
+    _roomPortalsOpen(roomId) {
+      const st = this._roomState(roomId);
+      return !!st.cleared;
+    },
+
+    _updateGoldPortalPayment(portal, dt) {
+      const d = this.dungeon;
+      const cfg = G.DemoConfig || {};
+      if (!d.portalPayment || d.portalPayment.portalId !== portal.id) d.portalPayment = { portalId: portal.id, t: 0 };
+      if (this.player.moving) { d.portalPayment.t = 0; return; }
+      if ((d.gold || 0) <= 0) {
+        this.toast(G.t('raid.toast.goldNeeded', { n: portal.cost - portal.paid }));
+        return;
+      }
+      d.portalPayment.t += dt;
+      const interval = cfg.coinPortalPayInterval || 0.18;
+      while (d.portalPayment.t >= interval && portal.paid < portal.cost && d.gold > 0) {
+        d.portalPayment.t -= interval;
+        d.gold--;
+        portal.paid++;
+        this.floatText(this.player.x, this.player.y - 18, '-1', '#f0c44a');
+        this.floatText(portal.x, portal.y - 18, portal.paid + '/' + portal.cost, '#f0c44a');
+      }
+      if (portal.paid >= portal.cost) this.toast(G.t('raid.toast.goldPortalOpen'));
     },
 
     _roomAt(x, y) {
@@ -613,6 +753,8 @@
       const p = this.player;
       const cfg = G.DemoConfig || {};
       const d = this.dungeon;
+      const room = this._roomAt(p.x, p.y);
+      if (room) d.currentRoomId = room.id;
       let inZone = null;
       for (const z of this.map.extracts) {
         if (U.dist(p.x, p.y, z.x, z.y) < z.r) { inZone = z; break; }
@@ -685,6 +827,7 @@
       if (U.chance(0.5)) drop(e.weaponId, 1);
       // armor drop
       if (e.armorId && U.chance(0.4)) drop(e.armorId, 1);
+      if (this.demo && this.dungeon) drop((G.DemoConfig && G.DemoConfig.coinItemId) || 'd_gold_coin', e.tier === 'raider' || e.tier === 'boss' ? U.randInt(2, 3) : U.randInt(1, 2));
       // some ammo of its caliber
       const cal = G.getItem(e.weaponId).ammoType;
       if (G.AMMO_ITEM[cal] && U.chance(0.7)) drop(G.AMMO_ITEM[cal], U.randInt(8, 24));
@@ -866,24 +1009,31 @@
       const current = this.demo && this.dungeon ? this.dungeon.currentRoomId : null;
       for (const p of this.map.portals) {
         const visible = !current || p.fromRoomId === current;
+        const roomOpen = !current || p.fromRoomId !== current || this._roomPortalsOpen(current);
+        const paid = !p.cost || p.paid >= p.cost;
+        const goldDoor = p.kind === 'gold';
+        const col = !roomOpen ? '#ff7b5a' : goldDoor && !paid ? '#f0c44a' : '#66c7ff';
         const pulse = 0.5 + 0.5 * Math.sin(this.time * 4 + p.x * 0.01);
         ctx.save();
         ctx.globalAlpha = visible ? 1 : 0.18;
-        ctx.fillStyle = 'rgba(86,180,255,' + (0.16 + pulse * 0.10).toFixed(3) + ')';
+        ctx.fillStyle = !roomOpen ? 'rgba(255,90,70,0.18)' : goldDoor && !paid ? 'rgba(240,196,74,0.18)' : 'rgba(86,180,255,' + (0.16 + pulse * 0.10).toFixed(3) + ')';
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 10 + pulse * 3, 0, U.TAU); ctx.fill();
-        ctx.strokeStyle = '#66c7ff';
+        ctx.strokeStyle = col;
         ctx.lineWidth = 3;
         ctx.setLineDash([6, 6]);
         ctx.lineDashOffset = -this.time * 26;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, 0, U.TAU); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = '#d9f2ff';
+        ctx.fillStyle = col;
         ctx.font = 'bold 18px monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('>', p.x, p.y);
+        ctx.fillText(!roomOpen ? 'X' : goldDoor && !paid ? '$' : '>', p.x, p.y);
         ctx.font = 'bold 10px monospace';
-        ctx.fillText(G.t('raid.portal.normal'), p.x, p.y - p.r - 14);
+        const label = !roomOpen
+          ? G.t('raid.portal.locked')
+          : goldDoor && !paid ? G.t('raid.portal.gold', { n: p.cost - p.paid }) : G.t('raid.portal.normal');
+        ctx.fillText(label, p.x, p.y - p.r - 14);
         ctx.textBaseline = 'alphabetic';
         ctx.restore();
       }
@@ -1059,9 +1209,10 @@
         ctx.fillText(G.t('raid.hud.monsterLevel', { n: this.dungeon.monsterLevel }), rightX, topY + 66);
         ctx.fillStyle = '#f0c44a';
         ctx.fillText(G.t('raid.hud.rewardMultiplier', { mul: this.dungeon.rewardMultiplier.toFixed(2) }), rightX, topY + 82);
+        ctx.fillText(G.t('raid.hud.gold', { n: this.dungeon.gold || 0 }), rightX, topY + 98);
         if (this.dungeon.enraged) {
           ctx.fillStyle = '#ff7b5a';
-          ctx.fillText(G.t('raid.hud.enraged'), rightX, topY + 98);
+          ctx.fillText(G.t('raid.hud.enraged'), rightX, topY + 114);
         }
       }
 
