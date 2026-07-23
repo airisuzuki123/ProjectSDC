@@ -227,7 +227,7 @@
       // the nearest container; tapping again cancels it. Drain both sources.
       const tapInteract = Input.consumeAction('interact');
       const tapSearch = Input.consumeAction('search');
-      if (tapInteract || tapSearch) {
+      if (!this.demo && (tapInteract || tapSearch)) {
         if (p.searching) {
           p.searching = null;
         } else if (cont && !cont.searched && cont.items.length) {
@@ -245,12 +245,16 @@
       } else {
         p.moving = false;
       }
+      this._updateAutoHarvest(dt, wantMove);
 
       // advance the active search; interrupt when the container leaves range
       if (p.searching) {
         const c = p.searching.container;
         if (c.searched || !c.items.length) {
           p.searching = null;
+        } else if (this.demo && (wantMove || p.moving)) {
+          p.searching = null;
+          this.toast(G.t('raid.toast.searchInterrupted'));
         } else if (U.dist(p.x, p.y, c.x, c.y) > C.LOOT_PICK_RADIUS + 16) {
           p.searching = null;
           this.toast(G.t('raid.toast.searchMoved'));
@@ -265,6 +269,23 @@
       // shot are resolved in _aimAndFire, AFTER the camera settles this frame, so
       // the bullet lines up with the on-screen crosshair.
       if (Input.firing() && p.searching) { p.searching = null; this.toast(G.t('raid.toast.searchInterrupted')); }
+    },
+
+    _updateAutoHarvest(dt, wantMove) {
+      if (!this.demo) return;
+      const p = this.player;
+      if (p.searching || wantMove || p.moving || p.healing || p.reloading) return;
+      const cont = this._nearestCont;
+      if (!cont || cont.searched || !cont.items.length) return;
+      p.searching = { t: 0, total: this._resourceSearchTime(cont), container: cont };
+      G.Audio.play('click', { vol: 0.35 });
+    },
+
+    _resourceSearchTime(cont) {
+      const cfg = G.DemoConfig || {};
+      const times = cfg.resourceSearchTimes || {};
+      const base = times[cont.type] || C.SEARCH_TIME;
+      return base / this._curseModifier('searchSpeedMultiplier', 1);
     },
 
     // Aim + fire, run after cam.follow() so the shot uses the SAME camera state
@@ -973,7 +994,22 @@
       for (const c of this.map.containers) {
         if (c.x < cam.x - hw - T || c.x > cam.x + hw + T || c.y < cam.y - hh - T || c.y > cam.y + hh + T) continue;
         G.Sprites.container(ctx, c);
+        if (this.demo && !c.searched && c.items.length) this._drawResourceHint(ctx, c);
       }
+    },
+
+    _drawResourceHint(ctx, c) {
+      const bob = Math.sin(this.time * 3.2 + c.x * 0.02) * 3;
+      const x = c.x, y = c.y - 30 + bob;
+      ctx.save();
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = '#ffe28a';
+      ctx.fillStyle = 'rgba(20,14,4,0.72)';
+      ctx.beginPath(); ctx.arc(x - 2, y - 2, 7, 0, U.TAU); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + 4, y + 4); ctx.lineTo(x + 12, y + 12); ctx.stroke();
+      ctx.fillStyle = '#fff2b8';
+      ctx.beginPath(); ctx.arc(x - 4, y - 4, 2.2, 0, U.TAU); ctx.fill();
+      ctx.restore();
     },
 
     _drawGround(ctx) {

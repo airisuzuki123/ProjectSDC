@@ -53,6 +53,7 @@
     coinPortalBaseCost: 3,
     coinPortalPayInterval: 0.18,
     coinPortalFlyTime: 0.42,
+    resourceSearchTimes: { crate: 1.1, locker: 1.4, medbox: 1.6, weaponrack: 2.1, safe: 2.8 },
     monsterLevelInterval: 45,
     monsterLevelMax: 6,
     monsterHpPerLevel: 0.15,

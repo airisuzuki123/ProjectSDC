@@ -201,6 +201,41 @@ ok('search transfers loot to backpack', () => {
   if (!c.searched && raid.player.backpackCount() === had && Object.keys(raid.player.reserve).length === 0)
     throw new Error('looting did nothing');
 });
+ok('demo resources auto-harvest while stationary without key input', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  const c = raid.map.containers.find(c => c.items.length);
+  if (!c) throw new Error('no demo resource point');
+  raid.player.x = c.x; raid.player.y = c.y;
+  G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
+  raid.update(0.01, 800, 600);
+  if (!raid.player.searching || raid.player.searching.container !== c) throw new Error('stationary player did not auto-start harvesting');
+  const expected = G.DemoConfig.resourceSearchTimes[c.type] || G.Config.SEARCH_TIME;
+  if (Math.abs(raid.player.searching.total - expected) > 0.001) throw new Error('resource harvest time not using demo quality table');
+  for (let i = 0; i < 400; i++) {
+    G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
+    raid.update(1 / 60, 800, 600);
+    if (c.searched) break;
+  }
+  if (!c.searched) throw new Error('auto-harvest did not complete');
+});
+ok('demo resource harvesting is interrupted by movement', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  const c = raid.map.containers.find(c => c.items.length);
+  raid.player.x = c.x; raid.player.y = c.y;
+  G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
+  raid.update(0.05, 800, 600);
+  if (!raid.player.searching) throw new Error('auto-harvest did not start');
+  G.Input.keys.clear(); G.Input.keys.add('d');
+  raid.update(1 / 60, 800, 600);
+  if (raid.player.searching) throw new Error('movement did not interrupt demo harvesting');
+  G.Input.keys.clear();
+});
 
 console.log('\n[5] Extraction & death flows');
 ok('standing in extract finishes with outcome=extract', () => {
