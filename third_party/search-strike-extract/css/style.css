@@ -226,6 +226,21 @@ button.big.danger:hover { background: var(--red); color: #fff; }
 .eq { font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; color: var(--text); }
 .overlay-screen .navbtns { max-width: 360px; width: 100%; }
 
+.curse-screen { gap: 12px; }
+.curse-title { font-size: clamp(24px, 7vw, 40px); font-weight: 900; letter-spacing: 2px; color: var(--gold); text-align: center; }
+.curse-sub { color: var(--dim); font-size: 13px; text-align: center; }
+.curse-list { width: min(760px, 100%); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.curse-card { min-height: 168px; text-align: left; padding: 14px; border-radius: 8px; border: 1px solid rgba(240,196,74,0.38); background: var(--panel2); color: var(--text); font-family: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 9px; }
+.curse-card:hover { border-color: var(--gold); background: rgba(38,34,24,0.95); }
+.curse-name { font-size: 16px; font-weight: 900; color: var(--gold); }
+.curse-desc { font-size: 12px; line-height: 1.45; color: var(--dim); flex: 1; }
+.curse-reward { font-size: 13px; color: var(--green); font-weight: 800; }
+
+@media (max-width: 680px) {
+  .curse-list { grid-template-columns: 1fr; }
+  .curse-card { min-height: 118px; }
+}
+
 /* ---- global toast ---- */
 #ui-toast {
   position: fixed; left: 50%; bottom: 80px; transform: translateX(-50%) translateY(20px);

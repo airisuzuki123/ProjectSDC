@@ -45,6 +45,7 @@
 
     move(dt, mvx, mvy, sprint, map) {
       let speed = C.PLAYER_SPEED;
+      speed *= this.moveSpeedMultiplier || 1;
       // Healing no longer roots you: you may reposition while patching up (but
       // cannot shoot — see tryShoot). It slows you and disables sprint so it is
       // still a committed, risky action. Searching allows movement too, but the
@@ -89,7 +90,8 @@
       const pellets = def.pellets || 1;
       for (let i = 0; i < pellets; i++) {
         const a = this.angle + U.rand(-spread, spread);
-        raid.bullets.push(G.makeBullet(mx, my, a, def.bulletSpeed, def.damage, 'player', { range: def.range, color: '#ffe08a' }));
+        const damage = Math.round(def.damage * (raid && raid._playerDamageMultiplier ? raid._playerDamageMultiplier() : 1));
+        raid.bullets.push(G.makeBullet(mx, my, a, def.bulletSpeed, damage, 'player', { range: def.range, color: '#ffe08a' }));
       }
       this.recoil = Math.min(0.24, this.recoil + def.recoil);
       raid.particles.muzzle(mx, my, this.angle);
@@ -127,7 +129,8 @@
       }
       if (!best) { raid.toast(G.t('toast.no_meds')); return; }
       const d = G.getItem(best.id);
-      this.healing = { t: 0, total: d.useTime, id: best.id, heal: d.heal };
+      const heal = Math.max(1, Math.round(d.heal * (raid && raid._healMultiplier ? raid._healMultiplier() : 1)));
+      this.healing = { t: 0, total: d.useTime, id: best.id, heal };
       G.Audio.play('heal', { vol: 0.7 });
     },
 
@@ -210,6 +213,7 @@
 
     takeDamage(dmg, raid, fromX, fromY) {
       if (this.dead) return;
+      dmg *= raid && raid._playerTakenDamageMultiplier ? raid._playerTakenDamageMultiplier() : 1;
       let dmgLeft = dmg;
       if (this.armor && this.armor.durability > 0) {
         const def = G.getItem(this.armor.id);
@@ -230,6 +234,7 @@
 
     // ---- inventory ----
     backpackCount() { return this.backpackUsed(); },
+    backpackLimit() { return C.BACKPACK_SLOTS + (this.backpackSlotBonus || 0); },
     backpackUsed() {
       let used = 0;
       for (const s of this.backpack) {
@@ -238,7 +243,7 @@
       }
       return used;
     },
-    backpackFree() { return Math.max(0, C.BACKPACK_SLOTS - this.backpackUsed()); },
+    backpackFree() { return Math.max(0, this.backpackLimit() - this.backpackUsed()); },
     addLoot(id, n) {
       const def = G.getItem(id);
       if (!def) return n;

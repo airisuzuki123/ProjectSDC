@@ -495,6 +495,10 @@
       if (result.requiredFragments != null) {
         lines.push([t('ui.results.scrollFragments'), t('ui.results.scrollValue', { n: result.scrollFragments || 0, total: result.requiredFragments })]);
       }
+      if (result.rewardMultiplier && result.rewardMultiplier > 1) {
+        lines.push([t('ui.results.rewardMultiplier'), 'x' + result.rewardMultiplier.toFixed(2)]);
+        lines.push([t('ui.results.baseLoot'), t('ui.results.lootValue', { value: U.formatNum(result.baseLootValue || 0), items: result.baseItems || result.items })]);
+      }
       if (win) {
         lines.push([t('ui.results.lootExtracted'), t('ui.results.lootValue', { value: U.formatNum(result.lootValue), items: result.items })]);
         const ex = extra && extra.extract;
@@ -509,6 +513,28 @@
       for (const [k, v] of lines) tbl.appendChild(h('div', { class: 'res-line' }, [h('span', { text: k }), h('b', { text: String(v) })]));
       wrap.appendChild(tbl);
       wrap.appendChild(navBtns([[t('ui.results.return'), () => this.host.toHub(), 'primary']]));
+      this.root.appendChild(wrap);
+    },
+
+    openCurseChoice(raid) {
+      this.show(); this.clear();
+      const d = raid.dungeon;
+      const wrap = h('div', { class: 'screen overlay-screen curse-screen' });
+      wrap.appendChild(h('div', { class: 'curse-title', text: t('ui.curse.title') }));
+      wrap.appendChild(h('div', { class: 'curse-sub', text: t('ui.curse.subtitle', { n: d.curseTriggers + 1 }) }));
+      const list = h('div', { class: 'curse-list' });
+      for (const c of d.curseChoices) {
+        const btn = h('button', { class: 'curse-card' }, [
+          h('div', { class: 'curse-name', text: t('curse.' + c.id + '.name') }),
+          h('div', { class: 'curse-desc', text: t('curse.' + c.id + '.desc') }),
+          h('div', { class: 'curse-reward', text: t('ui.curse.reward', { pct: Math.round((c.rewardBonus || 0) * 100) }) }),
+        ]);
+        btn.addEventListener('click', () => {
+          if (raid.chooseCurse(c.id)) this.hideAll();
+        });
+        list.appendChild(btn);
+      }
+      wrap.appendChild(list);
       this.root.appendChild(wrap);
     },
 
@@ -536,7 +562,7 @@
       const wrap = h('div', { class: 'screen overlay-screen' });
       wrap.appendChild(h('div', { class: 'inv-head' }, [
         h('div', { class: 'pause-title', text: t('ui.inv.title') }),
-        h('div', { class: 'inv-val', text: t('ui.inv.lootValue', { value: U.formatNum(p.lootValue()), count: p.backpackCount(), total: G.Config.BACKPACK_SLOTS }) }),
+        h('div', { class: 'inv-val', text: t('ui.inv.lootValue', { value: U.formatNum(p.lootValue()), count: p.backpackCount(), total: p.backpackLimit ? p.backpackLimit() : G.Config.BACKPACK_SLOTS }) }),
       ]));
       const grid = h('div', { class: 'item-grid' });
       if (!p.backpack.length) grid.appendChild(h('div', { class: 'empty', text: t('ui.inv.empty') }));

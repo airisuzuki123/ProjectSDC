@@ -41,6 +41,9 @@
     locationId: 'factory',
     scrollItemId: 'd_scroll_fragment',
     requiredFragments: 4,
+    curseMaxChoices: 2,
+    curseKillTriggers: [3, 8],
+    curseTimeTriggers: [90, 180],
     monsterLevelInterval: 45,
     monsterLevelMax: 6,
     monsterHpPerLevel: 0.15,
@@ -55,6 +58,39 @@
     enrageDamageBonus: 0.40,
     enrageSpawnIntervalMultiplier: 0.65,
   };
+
+  G.DemoCurses = [
+    {
+      id: 'greedy_hand',
+      rewardBonus: 0.15,
+      effects: { searchSpeedMultiplier: 1.30, monsterSpawnIntervalMultiplier: 0.85 },
+    },
+    {
+      id: 'blood_tax',
+      rewardBonus: 0.25,
+      effects: { scrollDropMultiplier: 1.20, healMultiplier: 0.80 },
+    },
+    {
+      id: 'heavy_march',
+      rewardBonus: 0.20,
+      effects: { backpackSlotsBonus: 2, playerSpeedMultiplier: 0.92 },
+    },
+    {
+      id: 'frenzy_guide',
+      rewardBonus: 0.35,
+      effects: { highValueDropMultiplier: 1.20, monsterLevelIntervalDelta: -10 },
+    },
+    {
+      id: 'glass_edge',
+      rewardBonus: 0.20,
+      effects: { playerDamageMultiplier: 1.20, playerTakenDamageMultiplier: 1.15 },
+    },
+    {
+      id: 'elite_gift',
+      rewardBonus: 0.30,
+      effects: { eliteDropMultiplier: 1.30, eliteSpawnChanceMultiplier: 1.30 },
+    },
+  ];
 
   /* ------------------------- Item database ------------------------------ */
   // type: weapon | ammo | armor | med | valuable | key

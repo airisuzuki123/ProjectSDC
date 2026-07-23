@@ -45,6 +45,12 @@
       spawnTimer: (G.DemoConfig && G.DemoConfig.monsterSpawnInterval) || 20,
       enraged: false,
       eliteSpawned: false,
+      rewardMultiplier: 1,
+      selectedCurses: [],
+      curseChoices: [],
+      cursePending: false,
+      curseTriggers: 0,
+      modifiers: defaultCurseModifiers(),
     } : null;
     this.visited = new Uint8Array(this.map.w * this.map.h);
     this._footT = 0;
@@ -56,6 +62,7 @@
     this.onPause = function () {};
     this.onInventory = function () {};
     this.onFinish = function () {};
+    this.onCurseChoice = function () {};
 
     this._buildPlayer(carried);
     this._spawnEnemies();
@@ -150,6 +157,7 @@
       dt = Math.min(dt, 0.05);
       this.time += dt;
       this.timeLeft -= dt;
+      this._updateDungeonCurses();
       this._updateDungeonPressure(dt);
 
       this._nearestCont = this._nearestContainer();
@@ -208,7 +216,7 @@
         if (p.searching) {
           p.searching = null;
         } else if (cont && !cont.searched && cont.items.length) {
-          p.searching = { t: 0, total: C.SEARCH_TIME, container: cont };
+          p.searching = { t: 0, total: C.SEARCH_TIME / this._curseModifier('searchSpeedMultiplier', 1), container: cont };
           G.Audio.play('click', { vol: 0.4 });
         } else if (cont) {
           this.toast(G.t('raid.toast.alreadyLooted'));
@@ -372,11 +380,88 @@
       return { n: d.scrollFragments, total: d.requiredFragments };
     },
 
+    _updateDungeonCurses() {
+      if (!this.demo || !this.dungeon || this.dungeon.cursePending) return;
+      const cfg = G.DemoConfig || {};
+      const d = this.dungeon;
+      const max = cfg.curseMaxChoices || 2;
+      if (d.curseTriggers >= max) return;
+      const killTriggers = cfg.curseKillTriggers || [3, 8];
+      const timeTriggers = cfg.curseTimeTriggers || [90, 180];
+      const idx = d.curseTriggers;
+      const killReady = killTriggers[idx] != null && this.kills >= killTriggers[idx];
+      const timeReady = timeTriggers[idx] != null && this.time >= timeTriggers[idx];
+      if (killReady || timeReady) this._openCurseChoice();
+    },
+
+    _openCurseChoice() {
+      const all = (G.DemoCurses || []).filter(c => this.dungeon.selectedCurses.indexOf(c.id) < 0);
+      const pool = all.slice();
+      const choices = [];
+      while (pool.length && choices.length < 3) {
+        const i = U.randInt(0, pool.length - 1);
+        choices.push(pool.splice(i, 1)[0]);
+      }
+      if (!choices.length) return;
+      this.dungeon.curseChoices = choices;
+      this.dungeon.cursePending = true;
+      this.paused = true;
+      Input.resetTouch();
+      this.onCurseChoice(this);
+    },
+
+    chooseCurse(id) {
+      if (!this.demo || !this.dungeon || !this.dungeon.cursePending) return false;
+      const pick = this.dungeon.curseChoices.find(c => c.id === id);
+      if (!pick) return false;
+      this.dungeon.selectedCurses.push(pick.id);
+      this.dungeon.rewardMultiplier = round2(this.dungeon.rewardMultiplier * (1 + (pick.rewardBonus || 0)));
+      this.dungeon.curseTriggers++;
+      this.dungeon.curseChoices = [];
+      this.dungeon.cursePending = false;
+      this._recomputeCurseModifiers();
+      this.toast(G.t('raid.toast.curseChosen', { name: G.t('curse.' + pick.id + '.name'), mul: this.dungeon.rewardMultiplier.toFixed(2) }));
+      Input.resetTouch();
+      this.paused = false;
+      return true;
+    },
+
+    _recomputeCurseModifiers() {
+      const d = this.dungeon;
+      if (!d) return;
+      const m = defaultCurseModifiers();
+      for (const id of d.selectedCurses) {
+        const c = (G.DemoCurses || []).find(x => x.id === id);
+        const e = c && c.effects;
+        if (!e) continue;
+        m.searchSpeedMultiplier *= e.searchSpeedMultiplier || 1;
+        m.monsterSpawnIntervalMultiplier *= e.monsterSpawnIntervalMultiplier || 1;
+        m.scrollDropMultiplier *= e.scrollDropMultiplier || 1;
+        m.healMultiplier *= e.healMultiplier || 1;
+        m.backpackSlotsBonus += e.backpackSlotsBonus || 0;
+        m.playerSpeedMultiplier *= e.playerSpeedMultiplier || 1;
+        m.highValueDropMultiplier *= e.highValueDropMultiplier || 1;
+        m.monsterLevelIntervalDelta += e.monsterLevelIntervalDelta || 0;
+        m.playerDamageMultiplier *= e.playerDamageMultiplier || 1;
+        m.playerTakenDamageMultiplier *= e.playerTakenDamageMultiplier || 1;
+        m.eliteDropMultiplier *= e.eliteDropMultiplier || 1;
+        m.eliteSpawnChanceMultiplier *= e.eliteSpawnChanceMultiplier || 1;
+      }
+      d.modifiers = m;
+      this.player.backpackSlotBonus = m.backpackSlotsBonus;
+      this.player.moveSpeedMultiplier = m.playerSpeedMultiplier;
+    },
+
+    _curseModifier(name, fallback) {
+      const m = this.dungeon && this.dungeon.modifiers;
+      return m && m[name] != null ? m[name] : fallback;
+    },
+
     _updateDungeonPressure(dt) {
       if (!this.demo || !this.dungeon) return;
       const cfg = G.DemoConfig || {};
       const d = this.dungeon;
-      const interval = cfg.monsterLevelInterval || 45;
+      const interval = this._monsterLevelInterval();
       const maxLevel = cfg.monsterLevelMax || 6;
       d.monsterLevelTimer += dt;
       while (d.monsterLevelTimer >= interval && d.monsterLevel < maxLevel) {
@@ -412,7 +497,8 @@
       let tier = tierOverride || 'scav';
       if (!tierOverride) {
         const level = this.dungeon ? this.dungeon.monsterLevel : 1;
-        const eliteChance = (this.dungeon && this.dungeon.enraged) ? 0.5 : (level >= 4 ? 0.35 : level >= 3 ? 0.2 : 0);
+        const baseEliteChance = (this.dungeon && this.dungeon.enraged) ? 0.5 : (level >= 4 ? 0.35 : level >= 3 ? 0.2 : 0);
+        const eliteChance = U.clamp(baseEliteChance * this._curseModifier('eliteSpawnChanceMultiplier', 1), 0, 0.95);
         tier = U.chance(eliteChance) ? 'raider' : 'scav';
       }
       this._spawnEnemyFromPoint(src, tier);
@@ -442,8 +528,19 @@
       const level = this.dungeon ? this.dungeon.monsterLevel : 1;
       let interval = base * Math.pow(1 - (cfg.monsterSpawnLevelReduction || 0), Math.max(0, level - 1));
       if (this.dungeon && this.dungeon.enraged) interval *= (cfg.enrageSpawnIntervalMultiplier || 1);
+      interval *= this._curseModifier('monsterSpawnIntervalMultiplier', 1);
       return Math.max(min, interval);
     },
+
+    _monsterLevelInterval() {
+      const cfg = G.DemoConfig || {};
+      const base = cfg.monsterLevelInterval || 45;
+      return Math.max(10, base + this._curseModifier('monsterLevelIntervalDelta', 0));
+    },
+
+    _playerDamageMultiplier() { return this._curseModifier('playerDamageMultiplier', 1); },
+    _playerTakenDamageMultiplier() { return this._curseModifier('playerTakenDamageMultiplier', 1); },
+    _healMultiplier() { return this._curseModifier('healMultiplier', 1); },
 
     // Drain any auto-equip notifications queued by Player.addLoot during a pickup.
     _flushEquipMsgs() {
@@ -503,10 +600,27 @@
       // tier drop table
       const tier = e.def;
       let rolls = U.randInt(tier.dropRolls[0], tier.dropRolls[1]);
+      if ((e.tier === 'raider' || e.tier === 'boss') && U.chance(Math.max(0, this._curseModifier('eliteDropMultiplier', 1) - 1))) rolls++;
       for (let i = 0; i < rolls; i++) {
-        const pick = U.weighted(tier.drops);
+        const pick = this._weightedDungeonDrop(tier.drops);
         drop(pick.id, U.randInt(pick.qty[0], pick.qty[1]));
       }
+    },
+
+    _weightedDungeonDrop(table) {
+      if (!this.demo || !this.dungeon) return U.weighted(table);
+      const scrollMul = this._curseModifier('scrollDropMultiplier', 1);
+      const highMul = this._curseModifier('highValueDropMultiplier', 1);
+      if (scrollMul === 1 && highMul === 1) return U.weighted(table);
+      const cfg = G.DemoConfig || {};
+      const weighted = table.map(row => {
+        const def = G.getItem(row.id);
+        let w = row.w;
+        if (row.id === cfg.scrollItemId) w *= scrollMul;
+        if (def && def.type === 'valuable' && (def.rarity === 'rare' || def.rarity === 'epic')) w *= highMul;
+        return Object.assign({}, row, { w });
+      });
+      return U.weighted(weighted);
     },
 
     /* ----------------------------- Finish ------------------------------ */
@@ -516,11 +630,18 @@
       if (outcome === 'death') G.Audio.play('death', { vol: 0.9 });
       if (outcome === 'failed') G.Audio.play('death', { vol: 0.9 });
       const failed = outcome === 'failed';
+      const baseLootValue = this.player.lootValue();
+      const baseItems = this.player.backpack.reduce((a, s) => a + s.n, 0);
+      const rewardMultiplier = this.dungeon ? this.dungeon.rewardMultiplier : 1;
+      const finalLootValue = Math.round(baseLootValue * rewardMultiplier);
       this.result = {
         outcome, kills: this.kills,
-        lootValue: failed ? 0 : this.player.lootValue(),
-        lostLootValue: failed ? this.player.lootValue() : 0,
-        items: failed ? 0 : this.player.backpack.reduce((a, s) => a + s.n, 0),
+        lootValue: failed ? 0 : finalLootValue,
+        baseLootValue,
+        baseItems,
+        rewardMultiplier,
+        lostLootValue: failed ? baseLootValue : 0,
+        items: failed ? 0 : baseItems,
         time: Math.round(this.time), scav: this.scav,
         locId: this.location && this.location.id,   // for contract counters
         killsByTier: this.killsByTier,
@@ -806,13 +927,18 @@
       ctx.fillStyle = '#f0c44a';
       ctx.fillText('₵ ' + U.formatNum(p.lootValue()), rightX, topY + 18);
       ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '11px monospace';
-      ctx.fillText(G.t('raid.hud.bag', { n: p.backpackCount(), max: C.BACKPACK_SLOTS }), rightX, topY + 34);
+      ctx.fillText(G.t('raid.hud.bag', { n: p.backpackCount(), max: p.backpackLimit ? p.backpackLimit() : C.BACKPACK_SLOTS }), rightX, topY + 34);
       if (this.demo && this.dungeon) {
         ctx.fillStyle = this._canNormalExtract() ? '#8fd6ff' : 'rgba(255,255,255,0.68)';
         ctx.fillText(G.t('raid.hud.scrolls', this._scrollParams()), rightX, topY + 50);
         ctx.fillStyle = this.dungeon.enraged ? '#ff7b5a' : 'rgba(255,255,255,0.68)';
         ctx.fillText(G.t('raid.hud.monsterLevel', { n: this.dungeon.monsterLevel }), rightX, topY + 66);
-        if (this.dungeon.enraged) ctx.fillText(G.t('raid.hud.enraged'), rightX, topY + 82);
+        ctx.fillStyle = '#f0c44a';
+        ctx.fillText(G.t('raid.hud.rewardMultiplier', { mul: this.dungeon.rewardMultiplier.toFixed(2) }), rightX, topY + 82);
+        if (this.dungeon.enraged) {
+          ctx.fillStyle = '#ff7b5a';
+          ctx.fillText(G.t('raid.hud.enraged'), rightX, topY + 98);
+        }
       }
 
       // ---- weapon panel + carried-item quick bar (bottom center-left) ----
@@ -1155,6 +1281,27 @@
     const out = 'rgb(' + (r | 0) + ',' + (g | 0) + ',' + (b | 0) + ')';
     _shadeCache[key] = out;
     return out;
+  }
+
+  function defaultCurseModifiers() {
+    return {
+      searchSpeedMultiplier: 1,
+      monsterSpawnIntervalMultiplier: 1,
+      scrollDropMultiplier: 1,
+      healMultiplier: 1,
+      backpackSlotsBonus: 0,
+      playerSpeedMultiplier: 1,
+      highValueDropMultiplier: 1,
+      monsterLevelIntervalDelta: 0,
+      playerDamageMultiplier: 1,
+      playerTakenDamageMultiplier: 1,
+      eliteDropMultiplier: 1,
+      eliteSpawnChanceMultiplier: 1,
+    };
+  }
+
+  function round2(n) {
+    return Math.round(n * 100) / 100;
   }
 
   G.Raid = Raid;

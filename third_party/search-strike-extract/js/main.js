@@ -87,6 +87,7 @@
       this.raid = new G.Raid(loc, carried);
       this.raid.onPause = () => G.UI.openPause(this.raid);
       this.raid.onInventory = () => G.UI.openRaidInventory(this.raid);
+      this.raid.onCurseChoice = () => G.UI.openCurseChoice(this.raid);
       this.raid.onFinish = (res) => this.finishRaid(res);
       G.UI.hideAll();
       this.state = 'raid';

@@ -272,6 +272,58 @@ ok('demo pressure spawns reinforcements with scaled stats', () => {
   const e = raid.enemies[0];
   if (e.maxHp <= G.EnemyTiers[e.tier].hp) throw new Error('spawned enemy hp was not scaled');
 });
+ok('demo curse choice triggers after kill threshold and pauses raid', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  let opened = 0;
+  raid.onCurseChoice = () => opened++;
+  raid.enemies = [];
+  raid.kills = G.DemoConfig.curseKillTriggers[0];
+  raid.update(1 / 60, 800, 600);
+  if (!raid.dungeon.cursePending) throw new Error('curse choice did not become pending');
+  if (!raid.paused) throw new Error('raid did not pause for curse choice');
+  if (opened !== 1) throw new Error('curse overlay was not opened');
+  if (raid.dungeon.curseChoices.length !== 3) throw new Error('expected three curse choices');
+});
+ok('demo curse selection increases reward multiplier', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.dungeon.curseChoices = G.DemoCurses.slice(0, 3);
+  raid.dungeon.cursePending = true;
+  raid.paused = true;
+  const before = raid.dungeon.rewardMultiplier;
+  const picked = raid.dungeon.curseChoices[0];
+  if (!raid.chooseCurse(picked.id)) throw new Error('choice rejected');
+  if (raid.dungeon.rewardMultiplier <= before) throw new Error('reward multiplier did not increase');
+  if (raid.dungeon.selectedCurses.indexOf(picked.id) < 0) throw new Error('selected curse not recorded');
+  if (raid.paused) throw new Error('raid stayed paused after choosing');
+});
+ok('demo reward multiplier affects settlement lootValue', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  let result = null; raid.onFinish = (r) => result = r;
+  raid.player.backpack = [{ id: 'v_cash', n: 10 }];
+  raid.dungeon.rewardMultiplier = 1.35;
+  raid._finish('normal_extract');
+  const base = G.getItem('v_cash').value * 10;
+  if (!result) throw new Error('no result');
+  if (result.baseLootValue !== base) throw new Error('base loot wrong');
+  if (result.lootValue !== Math.round(base * 1.35)) throw new Error('multiplied loot wrong: ' + result.lootValue);
+});
+ok('demo curse cost effect applies to backpack capacity and speed', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const c = G.DemoCurses.find(c => c.id === 'heavy_march');
+  raid.dungeon.curseChoices = [c];
+  raid.dungeon.cursePending = true;
+  raid.chooseCurse(c.id);
+  if (raid.player.backpackLimit() !== G.Config.BACKPACK_SLOTS + 2) throw new Error('backpack bonus not applied');
+  if (raid.player.moveSpeedMultiplier >= 1) throw new Error('speed penalty not applied');
+});
 
 console.log('\n[6] UI screens build without error');
 ok('all UI screens & overlays render', () => {
@@ -290,10 +342,15 @@ ok('all UI screens & overlays render', () => {
   G.UI.showResults({ outcome: 'extract', kills: 3, time: 95, lootValue: 1200, items: 5, scav: false }, { carriedValue: 800 });
   G.UI.showResults({ outcome: 'death', kills: 1, time: 40, lootValue: 300, items: 2, scav: true }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'normal_extract', kills: 2, time: 80, lootValue: 450, items: 3, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
+  G.UI.showResults({ outcome: 'normal_extract', kills: 2, time: 80, lootValue: 608, baseLootValue: 450, rewardMultiplier: 1.35, items: 3, baseItems: 3, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'failed', kills: 2, time: 80, lootValue: 0, lostLootValue: 450, items: 0, scav: true, scrollFragments: 2, requiredFragments: 4 }, { carriedValue: 0 });
   const fakeRaid = new G.Raid(G.Locations[0], G.Profile.scavKit());
   G.UI.openPause(fakeRaid);
   G.UI.openRaidInventory(fakeRaid);
+  const demoRaid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  demoRaid.dungeon.curseChoices = G.DemoCurses.slice(0, 3);
+  demoRaid.dungeon.cursePending = true;
+  G.UI.openCurseChoice(demoRaid);
 });
 
 console.log('\n[7] Stress: many raids back-to-back (mem/refs)');
