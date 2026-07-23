@@ -19,7 +19,9 @@
 
   function Raid(location, carried) {
     this.location = location;
-    this.map = G.MapGen.generate(location);
+    this.scav = !!carried.scav;
+    this.demo = !!carried.demo;
+    this.map = G.MapGen.generate(location, { demo: this.demo });
     this.cam = new G.Camera();
     this.particles = new G.Particles();
     this.bullets = [];
@@ -35,8 +37,6 @@
     this.result = null;
     this.extracting = null;       // {zone, t}
     this.invOpen = false;
-    this.scav = !!carried.scav;
-    this.demo = !!carried.demo;
     this.dungeon = this.demo ? {
       scrollFragments: 0,
       requiredFragments: (G.DemoConfig && G.DemoConfig.requiredFragments) || 4,
@@ -52,6 +52,8 @@
       curseTriggers: 0,
       modifiers: defaultCurseModifiers(),
       extractionChallenge: null,
+      currentRoomId: null,
+      portalCooldown: 0,
     } : null;
     this.visited = new Uint8Array(this.map.w * this.map.h);
     this._footT = 0;
@@ -168,6 +170,7 @@
       for (const e of this.enemies) e.update(dt, this);
       this._updateBullets(dt);
       this._updateGround(dt);
+      this._updatePortals(dt);
       this._updateExtract(dt);
       this.particles.update(dt);
       this._reveal();
@@ -494,7 +497,12 @@
       const cfg = G.DemoConfig || {};
       const alive = this.enemies.filter(e => !e.dead).length;
       if (alive >= (cfg.monsterSpawnMaxAlive || 18)) return false;
-      const src = U.choice(this.map.enemySpawns);
+      let spawns = this.map.enemySpawns;
+      if (this.demo && this.dungeon && this.dungeon.currentRoomId) {
+        const sameRoom = spawns.filter(s => s.roomId === this.dungeon.currentRoomId);
+        if (sameRoom.length) spawns = sameRoom;
+      }
+      const src = U.choice(spawns);
       let tier = tierOverride || 'scav';
       if (!tierOverride) {
         const level = this.dungeon ? this.dungeon.monsterLevel : 1;
@@ -566,6 +574,39 @@
       } else if (this.extracting) {
         this.extracting = null;
       }
+    },
+
+    _updatePortals(dt) {
+      if (!this.demo || !this.dungeon || !this.map.portals || !this.map.portals.length) return;
+      const d = this.dungeon;
+      d.portalCooldown = Math.max(0, (d.portalCooldown || 0) - dt);
+      const room = this._roomAt(this.player.x, this.player.y);
+      if (room) d.currentRoomId = room.id;
+      if (!room || d.portalCooldown > 0) return;
+      for (const p of this.map.portals) {
+        if (p.fromRoomId !== room.id) continue;
+        if (U.dist(this.player.x, this.player.y, p.x, p.y) >= p.r) continue;
+        const target = this.map.rooms.find(r => r.id === p.toRoomId);
+        if (!target) return;
+        const c = this.map.tileCenter(target.cx, target.cy);
+        this.player.x = c.x; this.player.y = c.y;
+        this.player.cancelActions();
+        d.currentRoomId = target.id;
+        d.portalCooldown = 0.55;
+        this.extracting = null;
+        if (d.extractionChallenge) d.extractionChallenge = null;
+        this.cam.x = this.player.x; this.cam.y = this.player.y;
+        this.toast(G.t('raid.toast.portalEntered'));
+        return;
+      }
+    },
+
+    _roomAt(x, y) {
+      const t = this.map.worldToTile(x, y);
+      for (const r of this.map.rooms || []) {
+        if (t.tx >= r.x && t.tx < r.x + r.w && t.ty >= r.y && t.ty < r.y + r.h) return r;
+      }
+      return null;
     },
 
     _updatePerfectExtract(dt) {
@@ -746,6 +787,7 @@
       this._drawWorld(ctx);
       this._drawGround(ctx);
       this._drawAttackRange(ctx);
+      this._drawPortals(ctx);
       this._drawExtracts(ctx);
       this._drawEnemies(ctx);
       this._drawPlayer(ctx);
@@ -817,6 +859,34 @@
       ctx.beginPath(); ctx.arc(p.x, p.y, wdef.range, p.angle - 0.5, p.angle + 0.5); ctx.stroke();
       ctx.setLineDash([]);
       ctx.restore();
+    },
+
+    _drawPortals(ctx) {
+      if (!this.map.portals || !this.map.portals.length) return;
+      const current = this.demo && this.dungeon ? this.dungeon.currentRoomId : null;
+      for (const p of this.map.portals) {
+        const visible = !current || p.fromRoomId === current;
+        const pulse = 0.5 + 0.5 * Math.sin(this.time * 4 + p.x * 0.01);
+        ctx.save();
+        ctx.globalAlpha = visible ? 1 : 0.18;
+        ctx.fillStyle = 'rgba(86,180,255,' + (0.16 + pulse * 0.10).toFixed(3) + ')';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 10 + pulse * 3, 0, U.TAU); ctx.fill();
+        ctx.strokeStyle = '#66c7ff';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 6]);
+        ctx.lineDashOffset = -this.time * 26;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, 0, U.TAU); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#d9f2ff';
+        ctx.font = 'bold 18px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('>', p.x, p.y);
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(G.t('raid.portal.normal'), p.x, p.y - p.r - 14);
+        ctx.textBaseline = 'alphabetic';
+        ctx.restore();
+      }
     },
 
     _drawExtracts(ctx) {

@@ -182,7 +182,8 @@
 
   /* --------------------------- Generation ------------------------------- */
   const MapGen = {
-    generate(loc) {
+    generate(loc, opts) {
+      if (opts && opts.demo) return generateDemoRoomMap(loc);
       const seed = (Math.random() * 1e9) | 0;
       const rng = G.RNG(seed);
       const W = loc.gridW, H = loc.gridH, T = Config.TILE;
@@ -371,6 +372,144 @@
       return map;
     },
   };
+
+  function generateDemoRoomMap(loc) {
+    const seed = (Math.random() * 1e9) | 0;
+    const rng = G.RNG(seed);
+    const T = Config.TILE;
+    const roomW = 10, roomH = 8, gap = 4, margin = 3;
+    const mainCount = rng.int(4, 5);
+    const hasReward = rng.chance(0.65);
+    const W = margin * 2 + mainCount * roomW + (mainCount - 1) * gap;
+    const H = margin * 2 + roomH * (hasReward ? 2 : 1) + (hasReward ? gap : 0);
+    const grid = new Uint8Array(W * H).fill(1);
+    const shade = new Uint8Array(W * H);
+    const idx = (x, y) => y * W + x;
+    const rooms = [];
+    const portals = [];
+
+    const carveRect = (x, y, w, h) => {
+      for (let j = y; j < y + h; j++)
+        for (let i = x; i < x + w; i++)
+          if (i > 0 && j > 0 && i < W - 1 && j < H - 1) grid[idx(i, j)] = 0;
+    };
+    const centerOf = (r) => map_tileCenter(r.cx, r.cy, T);
+    const addRoom = (x, y, kind, pathIndex) => {
+      const r = {
+        id: 'room_' + rooms.length,
+        x, y, w: roomW, h: roomH,
+        cx: x + Math.floor(roomW / 2),
+        cy: y + Math.floor(roomH / 2),
+        kind, pathIndex,
+      };
+      carveRect(r.x, r.y, r.w, r.h);
+      rooms.push(r);
+      return r;
+    };
+
+    const mainRooms = [];
+    for (let i = 0; i < mainCount; i++) {
+      mainRooms.push(addRoom(margin + i * (roomW + gap), margin, i === 0 ? 'spawn' : i === mainCount - 1 ? 'extract' : 'combat', i));
+    }
+    let rewardRoom = null;
+    if (hasReward && mainRooms.length > 2) {
+      const anchorIndex = rng.int(1, mainRooms.length - 2);
+      const anchor = mainRooms[anchorIndex];
+      rewardRoom = addRoom(anchor.x, margin + roomH + gap, 'reward', anchor.pathIndex);
+      rewardRoom.anchorRoomId = anchor.id;
+    }
+
+    for (let i = 0; i < grid.length; i++) if (grid[i] === 0) shade[i] = (rng() * 4) | 0;
+
+    const addPortal = (from, to, tx, ty, dir) => {
+      const c = map_tileCenter(tx, ty, T);
+      portals.push({
+        id: 'portal_' + portals.length,
+        x: c.x, y: c.y, tx, ty, r: T * 0.55,
+        fromRoomId: from.id,
+        toRoomId: to.id,
+        dir,
+        kind: 'normal',
+      });
+    };
+    for (let i = 0; i < mainRooms.length - 1; i++) {
+      const a = mainRooms[i], b = mainRooms[i + 1];
+      addPortal(a, b, a.x + a.w - 1, a.cy, 'east');
+      addPortal(b, a, b.x, b.cy, 'west');
+    }
+    if (rewardRoom) {
+      const anchor = mainRooms.find(r => r.id === rewardRoom.anchorRoomId);
+      addPortal(anchor, rewardRoom, anchor.cx, anchor.y + anchor.h - 1, 'south');
+      addPortal(rewardRoom, anchor, rewardRoom.cx, rewardRoom.y, 'north');
+    }
+
+    const spawnRoom = mainRooms[0];
+    const playerCenter = centerOf(spawnRoom);
+    const extractRoom = mainRooms[mainRooms.length - 1];
+    const extractCenter = centerOf(extractRoom);
+    const extracts = [{ x: extractCenter.x, y: extractCenter.y, r: T * 1.15, name: 'Perfect Vent', tx: extractRoom.cx, ty: extractRoom.cy, roomId: extractRoom.id }];
+
+    const map = {
+      seed, w: W, h: H, tile: T, pxW: W * T, pxH: H * T,
+      grid, shade, rooms, portals, extracts, playerSpawn: playerCenter,
+      color: loc.color, location: loc,
+      containers: [], enemySpawns: [],
+      roomGraph: { mainRoomIds: mainRooms.map(r => r.id), rewardRoomId: rewardRoom && rewardRoom.id, extractRoomId: extractRoom.id },
+    };
+    attachMapMethods(map);
+
+    const occupied = new Set();
+    const placeAtRoom = (r, type) => {
+      for (let tries = 0; tries < 18; tries++) {
+        const tx = rng.int(r.x + 1, r.x + r.w - 2);
+        const ty = rng.int(r.y + 1, r.y + r.h - 2);
+        if (grid[idx(tx, ty)] !== 0) continue;
+        const key = ty * W + tx;
+        if (occupied.has(key)) continue;
+        occupied.add(key);
+        const c = map_tileCenter(tx, ty, T);
+        map.containers.push({
+          id: U.uuid(), x: c.x, y: c.y, tx, ty, type,
+          items: rollLoot(rng, type, r.kind === 'reward' ? loc.lootMul * 1.8 : loc.lootMul), searched: false, progress: 0, roomId: r.id,
+        });
+        return true;
+      }
+      return false;
+    };
+    for (const r of rooms) {
+      if (r.kind === 'spawn') placeAtRoom(r, 'crate');
+      else if (r.kind === 'reward') {
+        placeAtRoom(r, 'safe');
+        placeAtRoom(r, 'weaponrack');
+      } else if (r.kind === 'combat') {
+        placeAtRoom(r, rng.chance(0.5) ? 'crate' : 'locker');
+        if (rng.chance(0.35)) placeAtRoom(r, 'medbox');
+      }
+    }
+
+    const addEnemySpawns = (r, count, eliteChance) => {
+      for (let i = 0; i < count; i++) {
+        for (let tries = 0; tries < 12; tries++) {
+          const tx = rng.int(r.x + 1, r.x + r.w - 2);
+          const ty = rng.int(r.y + 1, r.y + r.h - 2);
+          if (grid[idx(tx, ty)] !== 0) continue;
+          const c = map_tileCenter(tx, ty, T);
+          if (U.dist(c.x, c.y, playerCenter.x, playerCenter.y) < T * 5) continue;
+          const tier = rng.chance(eliteChance || 0) ? 'raider' : 'scav';
+          map.enemySpawns.push({ x: c.x, y: c.y, tier, room: r, roomId: r.id });
+          break;
+        }
+      }
+    };
+    for (const r of rooms) {
+      if (r.kind === 'spawn') continue;
+      if (r.kind === 'extract') addEnemySpawns(r, 3, 0.25);
+      else if (r.kind === 'reward') addEnemySpawns(r, 2, 0.45);
+      else addEnemySpawns(r, 2 + Math.min(2, r.pathIndex), r.pathIndex >= 2 ? 0.2 : 0);
+    }
+
+    return map;
+  }
 
   function map_tileCenter(tx, ty, T) { return { x: tx * T + T / 2, y: ty * T + T / 2 }; }
 

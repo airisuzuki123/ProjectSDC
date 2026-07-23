@@ -100,6 +100,20 @@ ok('all locations generate with spawn/extracts/enemies', () => {
     }
   }
 });
+ok('demo room map generates a short main path with portals', () => {
+  const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
+  for (let i = 0; i < 8; i++) {
+    const m = G.MapGen.generate(loc, { demo: true });
+    if (!m.roomGraph) throw new Error('no room graph');
+    if (m.roomGraph.mainRoomIds.length < 4 || m.roomGraph.mainRoomIds.length > 5) throw new Error('main path room count out of range');
+    if (!m.portals || m.portals.length < (m.roomGraph.mainRoomIds.length - 1) * 2) throw new Error('not enough portals');
+    if (m.pxW * m.pxH >= loc.gridW * loc.gridH * G.Config.TILE * G.Config.TILE) throw new Error('demo room map not smaller than base location');
+    const spawnRoom = m.rooms.find(r => r.kind === 'spawn');
+    const extractRoom = m.rooms.find(r => r.kind === 'extract');
+    if (!spawnRoom || !extractRoom) throw new Error('missing spawn/extract room');
+    if (!m.extracts.length || m.extracts[0].roomId !== extractRoom.id) throw new Error('extract not placed in extract room');
+  }
+});
 
 console.log('\n[2] Profile / economy');
 ok('fresh profile loads and starting gear present', () => {
@@ -262,6 +276,19 @@ ok('demo extract zone starts and cancels perfect extract challenge', () => {
   raid.player.x = z.x + z.r + 80;
   raid._updateExtract(0.1);
   if (raid.dungeon.extractionChallenge || raid.extracting) throw new Error('perfect extract challenge did not cancel when leaving zone');
+});
+ok('demo normal portal immediately moves player to target room', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const p = raid.map.portals[0];
+  if (!p) throw new Error('no portal generated');
+  const target = raid.map.rooms.find(r => r.id === p.toRoomId);
+  raid.player.x = p.x; raid.player.y = p.y;
+  raid._updatePortals(1);
+  const here = raid._roomAt(raid.player.x, raid.player.y);
+  if (!here || here.id !== target.id) throw new Error('portal did not move player to target room');
+  if (raid.dungeon.portalCooldown <= 0) throw new Error('portal cooldown not set');
 });
 ok('demo perfect extract succeeds after hold timer and applies bonus', () => {
   const carried = G.Profile.scavKit();
