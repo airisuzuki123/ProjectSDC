@@ -74,20 +74,22 @@
       if (!w) return;
       const def = G.getItem(w.id);
       if (this.fireCd > 0) return;
-      if (w.mag <= 0) {
+      const demoUnlimited = raid && raid.demo;
+      if (!demoUnlimited && w.mag <= 0) {
         this.fireCd = 0.25;     // rate-limit empty clicks; reload() plays 'reload' or a single 'empty'
         this.reload();
         return;
       }
       this.fireCd = def.fireRate / 1000;
-      w.mag--;
+      if (!demoUnlimited) w.mag--;
       this.lastShotAt = raid.time;
       const mx = this.x + Math.cos(this.angle) * (this.r + 6);
       const my = this.y + Math.sin(this.angle) * (this.r + 6);
       // recoil contributes only partially to bullet spread so shots still track
       // the crosshair under sustained fire (it remains a visible bloom, not a spray)
       const spread = def.spread + this.recoil * 0.55;
-      const pellets = def.pellets || 1;
+      const extraProjectiles = raid && raid._playerProjectileBonus ? raid._playerProjectileBonus() : 0;
+      const pellets = (def.pellets || 1) + extraProjectiles;
       for (let i = 0; i < pellets; i++) {
         const a = this.angle + U.rand(-spread, spread);
         const damage = Math.round(def.damage * (raid && raid._playerDamageMultiplier ? raid._playerDamageMultiplier() : 1));

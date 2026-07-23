@@ -202,7 +202,7 @@
       const p = this.player, map = this.map;
       // discrete actions from keys + buttons
       Input.queueKeyActions(KEY_ACTIONS);
-      if (Input.consumeAction('reload')) p.reload();
+      if (Input.consumeAction('reload') && !this.demo) p.reload();
       if (Input.consumeAction('heal')) p.useMed(this);
       if (Input.consumeAction('swap')) p.swapWeapon(this);
       if (Input.consumeAction('sprint')) this.sprintOn = !this.sprintOn;
@@ -268,7 +268,7 @@
       // opening fire interrupts an active search ("开枪也中断"). The actual aim &
       // shot are resolved in _aimAndFire, AFTER the camera settles this frame, so
       // the bullet lines up with the on-screen crosshair.
-      if (Input.firing() && p.searching) { p.searching = null; this.toast(G.t('raid.toast.searchInterrupted')); }
+      if (!this.demo && Input.firing() && p.searching) { p.searching = null; this.toast(G.t('raid.toast.searchInterrupted')); }
     },
 
     _updateAutoHarvest(dt, wantMove) {
@@ -293,6 +293,16 @@
     // off it when the camera is moving or shaking.
     _aimAndFire(dt) {
       const p = this.player;
+      if (this.demo) {
+        const target = this._nearestDemoTarget();
+        if (target) {
+          p.aimAt(U.angle(p.x, p.y, target.x, target.y));
+          const before = p.lastShotAt;
+          if (!p.searching) p.tryShoot(this);
+          if (p.lastShotAt !== before) this._alertEnemies(p.x, p.y);
+        }
+        return;
+      }
       const aim = Input.aimDir();
       let ang = p.angle;
       if (aim.mode === 'dir') ang = Math.atan2(aim.dy, aim.dx);
@@ -301,6 +311,24 @@
       const before = p.lastShotAt;
       if (Input.firing() && !p.searching) p.tryShoot(this);
       if (p.lastShotAt !== before) this._alertEnemies(p.x, p.y);
+    },
+
+    _nearestDemoTarget() {
+      const p = this.player;
+      const wdef = p.weaponDef();
+      const maxRange = wdef ? wdef.range : 520;
+      const maxD2 = maxRange * maxRange;
+      const currentRoomId = this.dungeon && this.dungeon.currentRoomId;
+      let best = null, bestD2 = Infinity;
+      for (const e of this.enemies) {
+        if (e.dead) continue;
+        if (currentRoomId && e.room && e.room.id !== currentRoomId) continue;
+        const dx = e.x - p.x, dy = e.y - p.y, d2 = dx * dx + dy * dy;
+        if (d2 > maxD2 || d2 >= bestD2) continue;
+        if (this.map.los && !this.map.los(p.x, p.y, e.x, e.y)) continue;
+        best = e; bestD2 = d2;
+      }
+      return best;
     },
 
     _collect(cont) {
@@ -485,6 +513,7 @@
         m.highValueDropMultiplier *= e.highValueDropMultiplier || 1;
         m.monsterLevelIntervalDelta += e.monsterLevelIntervalDelta || 0;
         m.playerDamageMultiplier *= e.playerDamageMultiplier || 1;
+        m.playerProjectileBonus += e.playerProjectileBonus || 0;
         m.playerTakenDamageMultiplier *= e.playerTakenDamageMultiplier || 1;
         m.eliteDropMultiplier *= e.eliteDropMultiplier || 1;
         m.eliteSpawnChanceMultiplier *= e.eliteSpawnChanceMultiplier || 1;
@@ -586,6 +615,7 @@
     },
 
     _playerDamageMultiplier() { return this._curseModifier('playerDamageMultiplier', 1); },
+    _playerProjectileBonus() { return Math.max(0, Math.round(this._curseModifier('playerProjectileBonus', 0))); },
     _playerTakenDamageMultiplier() { return this._curseModifier('playerTakenDamageMultiplier', 1); },
     _healMultiplier() { return this._curseModifier('healMultiplier', 1); },
 
@@ -1465,8 +1495,12 @@
         ctx.fillStyle = G.RARITY_COLOR[wdef.rarity] || '#fff'; ctx.font = 'bold 13px monospace';
         ctx.fillText(G.I18n.itemName(w0.id), panelX + 10, panelY + 18);
         ctx.fillStyle = '#fff'; ctx.font = 'bold 18px monospace';
-        const reserve = p.reserve[wdef.ammoType] || 0;
-        ctx.fillText(w0.mag + ' / ' + reserve, panelX + 10, panelY + 38);
+        if (this.demo) {
+          ctx.fillText(G.t('raid.weapon.demoAuto'), panelX + 10, panelY + 38);
+        } else {
+          const reserve = p.reserve[wdef.ammoType] || 0;
+          ctx.fillText(w0.mag + ' / ' + reserve, panelX + 10, panelY + 38);
+        }
         // reload progress
         if (p.reloading) {
           const frac = p.reloading.t / p.reloading.total;
@@ -1662,6 +1696,7 @@
       highValueDropMultiplier: 1,
       monsterLevelIntervalDelta: 0,
       playerDamageMultiplier: 1,
+      playerProjectileBonus: 0,
       playerTakenDamageMultiplier: 1,
       eliteDropMultiplier: 1,
       eliteSpawnChanceMultiplier: 1,

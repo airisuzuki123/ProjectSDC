@@ -236,6 +236,40 @@ ok('demo resource harvesting is interrupted by movement', () => {
   if (raid.player.searching) throw new Error('movement did not interrupt demo harvesting');
   G.Input.keys.clear();
 });
+ok('demo resource harvesting ignores mouse fire input', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  const c = raid.map.containers.find(c => c.items.length);
+  raid.player.x = c.x; raid.player.y = c.y;
+  G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
+  raid.update(0.05, 800, 600);
+  if (!raid.player.searching) throw new Error('auto-harvest did not start');
+  G.Input.mouse.down = true;
+  raid.update(1 / 60, 800, 600);
+  if (!raid.player.searching) throw new Error('mouse fire interrupted demo harvesting');
+  G.Input.mouse.down = false;
+});
+ok('demo combat auto-aims nearest enemy and shoots without ammo', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  raid.map.containers = [];
+  raid.map.los = () => true;
+  raid.player.weapons[0].mag = 0;
+  raid.player.reserve = {};
+  raid.player.fireCd = 0;
+  const near = { dead: false, x: raid.player.x + 80, y: raid.player.y, r: G.Config.ENEMY_RADIUS, room: null, update() {}, hearShot() {} };
+  const far = { dead: false, x: raid.player.x - 180, y: raid.player.y, r: G.Config.ENEMY_RADIUS, room: null, update() {}, hearShot() {} };
+  raid.enemies.push(far, near);
+  G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
+  raid.update(1 / 60, 800, 600);
+  if (!raid.bullets.some(b => b.owner === 'player')) throw new Error('demo did not auto-fire');
+  if (raid.player.weapons[0].mag !== 0) throw new Error('demo shooting changed magazine count');
+  if (Math.abs(raid.player.angle) > 0.01) throw new Error('demo did not aim at nearest enemy');
+});
 
 console.log('\n[5] Extraction & death flows');
 ok('standing in extract finishes with outcome=extract', () => {
