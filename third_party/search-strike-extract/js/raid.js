@@ -1174,19 +1174,45 @@
         ctx.lineDashOffset = -this.time * 26;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, 0, U.TAU); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = col;
-        ctx.font = 'bold 18px monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(!roomOpen ? 'X' : goldDoor && !paid ? '$' : '>', p.x, p.y);
-        ctx.font = 'bold 10px monospace';
-        const label = !roomOpen
-          ? G.t('raid.portal.locked')
-          : goldDoor && !paid ? G.t('raid.portal.gold', { n: p.cost - p.paid }) : G.t('raid.portal.normal');
-        ctx.fillText(label, p.x, p.y - p.r - 14);
+        this._drawPortalRequirement(ctx, p, { roomOpen, paid, goldDoor, col });
         ctx.textBaseline = 'alphabetic';
         ctx.restore();
       }
+    },
+
+    _drawPortalRequirement(ctx, p, state) {
+      const col = state.col;
+      const icon = !state.roomOpen ? 'X' : state.goldDoor && !state.paid ? '$' : '>';
+      ctx.fillStyle = col;
+      ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(icon, p.x, p.y);
+
+      const y = p.y - p.r - 20;
+      if (state.goldDoor && !state.paid) {
+        const text = p.paid + '/' + p.cost;
+        ctx.font = 'bold 10px monospace';
+        const bw = Math.max(46, ctx.measureText(text).width + 26);
+        ctx.fillStyle = 'rgba(20,14,4,0.82)';
+        ctx.strokeStyle = 'rgba(240,196,74,0.75)';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(p.x - bw / 2, y - 10, bw, 20);
+        ctx.strokeRect(p.x - bw / 2, y - 10, bw, 20);
+        ctx.fillStyle = '#f0c44a';
+        ctx.beginPath(); ctx.arc(p.x - bw / 2 + 12, y, 5, 0, U.TAU); ctx.fill();
+        ctx.fillStyle = '#5a3a00';
+        ctx.font = 'bold 7px monospace';
+        ctx.fillText('$', p.x - bw / 2 + 12, y + 0.5);
+        ctx.fillStyle = '#ffe9a0';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(text, p.x + 8, y);
+        return;
+      }
+
+      ctx.font = 'bold 10px monospace';
+      const label = !state.roomOpen ? G.t('raid.portal.locked') : G.t('raid.portal.normal');
+      ctx.fillText(label, p.x, y);
     },
 
     _drawExtracts(ctx) {

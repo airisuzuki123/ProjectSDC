@@ -496,6 +496,28 @@ ok('demo gold is dungeon currency and opens paid portal after standing payment',
   if (raid._roomAt(raid.player.x, raid.player.y).id !== target.id) throw new Error('paid portal did not transfer after payment');
   if (raid.dungeon.gold !== 0) throw new Error('gold was not consumed');
 });
+ok('demo gold portal payment requires standing still', () => {
+  let raid = null, paidPortal = null;
+  for (let i = 0; i < 20 && !paidPortal; i++) {
+    const carried = G.Profile.scavKit();
+    carried.demo = true;
+    raid = new G.Raid(G.Locations[0], carried);
+    paidPortal = raid.map.portals.find(p => p.kind === 'gold');
+  }
+  if (!paidPortal) throw new Error('no paid portal generated in attempts');
+  const room = raid.map.rooms.find(r => r.id === paidPortal.fromRoomId);
+  raid.player.x = paidPortal.x; raid.player.y = paidPortal.y;
+  raid.dungeon.currentRoomId = room.id;
+  raid._roomState(room.id).cleared = true;
+  raid._collectDungeonItem(G.DemoConfig.coinItemId, paidPortal.cost);
+  raid.player.moving = true;
+  raid._updatePortals(G.DemoConfig.coinPortalPayInterval * 3);
+  if (paidPortal.paid !== 0) throw new Error('moving player paid into the gold portal');
+  if (raid.dungeon.gold !== paidPortal.cost) throw new Error('moving player consumed gold');
+  raid.player.moving = false;
+  raid._updatePortals(G.DemoConfig.coinPortalPayInterval);
+  if (paidPortal.paid !== 1) throw new Error('standing player did not pay one coin');
+});
 ok('demo perfect extract succeeds after hold timer and applies bonus', () => {
   const carried = G.Profile.scavKit();
   carried.demo = true;
