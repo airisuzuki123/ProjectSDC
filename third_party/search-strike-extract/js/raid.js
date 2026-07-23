@@ -29,6 +29,7 @@
     this.groundItems = [];
     this.toasts = [];
     this.floats = [];
+    this.coinFlights = [];
     this.time = 0;
     this.timeLeft = C.RAID_TIME;
     this.kills = 0;
@@ -184,6 +185,7 @@
       this.particles.update(dt);
       this._reveal();
       this._updateFloats(dt);
+      this._updateCoinFlights(dt);
       this._updateToasts(dt);
 
       this.cam.follow(this.player.x, this.player.y, dt, { w: this.map.pxW, h: this.map.pxH });
@@ -735,7 +737,7 @@
         d.portalPayment.t -= interval;
         d.gold--;
         portal.paid++;
-        this.floatText(this.player.x, this.player.y - 18, '-1', '#f0c44a');
+        this.spawnCoinFlight(this.player.x, this.player.y - 10, portal.x, portal.y - 6);
         this.floatText(portal.x, portal.y - 18, portal.paid + '/' + portal.cost, '#f0c44a');
       }
       if (portal.paid >= portal.cost) this.toast(G.t('raid.toast.goldPortalOpen'));
@@ -930,6 +932,7 @@
       this._drawWorld(ctx);
       this._drawGround(ctx);
       this._drawAttackRange(ctx);
+      this._drawCoinFlights(ctx);
       this._drawPortals(ctx);
       this._drawExtracts(ctx);
       this._drawEnemies(ctx);
@@ -983,6 +986,56 @@
         G.Sprites.groundItem(ctx, d, g.x, g.y + bob, s);
         ctx.shadowBlur = 0;
       }
+    },
+
+    spawnCoinFlight(x0, y0, x1, y1) {
+      const cfg = G.DemoConfig || {};
+      this.coinFlights.push({
+        x0, y0, x1, y1,
+        t: 0,
+        total: cfg.coinPortalFlyTime || 0.42,
+        wobble: Math.random() * U.TAU,
+      });
+    },
+
+    _updateCoinFlights(dt) {
+      for (let i = this.coinFlights.length - 1; i >= 0; i--) {
+        const c = this.coinFlights[i];
+        c.t += dt;
+        if (c.t >= c.total) this.coinFlights.splice(i, 1);
+      }
+    },
+
+    _drawCoinFlights(ctx) {
+      if (!this.coinFlights.length) return;
+      ctx.save();
+      for (const c of this.coinFlights) {
+        const u = U.clamp(c.t / c.total, 0, 1);
+        const ease = 1 - Math.pow(1 - u, 3);
+        const arc = Math.sin(u * Math.PI) * 22;
+        const wob = Math.sin(c.wobble + u * Math.PI * 3) * 4 * (1 - u);
+        const x = c.x0 + (c.x1 - c.x0) * ease + wob;
+        const y = c.y0 + (c.y1 - c.y0) * ease - arc;
+        const tx = c.x0 + (x - c.x0) * 0.72;
+        const ty = c.y0 + (y - c.y0) * 0.72;
+        ctx.globalAlpha = 0.35 + 0.65 * (1 - u * 0.35);
+        ctx.strokeStyle = 'rgba(240,196,74,0.45)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(x, y); ctx.stroke();
+        ctx.fillStyle = '#f0c44a';
+        ctx.beginPath(); ctx.arc(x, y, 5, 0, U.TAU); ctx.fill();
+        ctx.strokeStyle = '#fff0a8';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(x, y, 5.5, 0, U.TAU); ctx.stroke();
+        ctx.fillStyle = '#7a5400';
+        ctx.font = 'bold 8px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('$', x, y + 0.5);
+      }
+      ctx.globalAlpha = 1;
+      ctx.textBaseline = 'alphabetic';
+      ctx.restore();
     },
 
     // Dashed ring at the equipped weapon's effective range — shows how far your

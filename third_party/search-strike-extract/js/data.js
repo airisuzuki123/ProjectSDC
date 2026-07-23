@@ -52,6 +52,7 @@
     coinItemId: 'd_gold_coin',
     coinPortalBaseCost: 3,
     coinPortalPayInterval: 0.18,
+    coinPortalFlyTime: 0.42,
     monsterLevelInterval: 45,
     monsterLevelMax: 6,
     monsterHpPerLevel: 0.15,

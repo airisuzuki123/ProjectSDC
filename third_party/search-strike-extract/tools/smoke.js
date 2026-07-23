@@ -346,11 +346,16 @@ ok('demo gold is dungeon currency and opens paid portal after standing payment',
   raid._roomState(room.id).cleared = true;
   raid._collectDungeonItem(G.DemoConfig.coinItemId, paidPortal.cost);
   if (raid.player.backpack.some(s => s.id === G.DemoConfig.coinItemId)) throw new Error('gold entered backpack');
+  let sawCoinFlight = false;
   for (let i = 0; i < 120; i++) {
     raid.player.moving = false;
     raid._updatePortals(0.2);
+    if (raid.coinFlights.length > 0) sawCoinFlight = true;
     if (raid._roomAt(raid.player.x, raid.player.y).id === target.id) break;
   }
+  if (!sawCoinFlight) throw new Error('paid portal did not spawn coin flight animation');
+  raid._updateCoinFlights(G.DemoConfig.coinPortalFlyTime + 0.1);
+  if (raid.coinFlights.length !== 0) throw new Error('coin flight animation did not clean up');
   if (raid._roomAt(raid.player.x, raid.player.y).id !== target.id) throw new Error('paid portal did not transfer after payment');
   if (raid.dungeon.gold !== 0) throw new Error('gold was not consumed');
 });
