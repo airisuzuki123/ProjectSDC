@@ -46,6 +46,7 @@
     curseMaxChoices: 2,
     curseKillTriggers: [3, 8],
     curseTimeTriggers: [90, 180],
+    perfectExtractArmTime: 2,
     perfectExtractTime: 30,
     perfectExtractSpawnInterval: 4,
     perfectExtractRewardMultiplier: 1.50,

@@ -194,6 +194,24 @@ ok('demo room size leaves enough combat space', () => {
   const m = G.MapGen.generate(loc, { demo: true });
   if (Math.max(m.w, m.h) > 74 || Math.min(m.w, m.h) > 46) throw new Error('larger demo room map exceeded compact bounds');
 });
+ok('vertical demo room map clears the full viewport before drawing', () => {
+  let raid = null;
+  for (let i = 0; i < 40; i++) {
+    const carried = G.Profile.scavKit();
+    carried.demo = true;
+    raid = new G.Raid(G.Locations[0], carried);
+    if (raid.map.roomGraph && raid.map.roomGraph.orientation === 'vertical') break;
+  }
+  if (!raid || !raid.map.roomGraph || raid.map.roomGraph.orientation !== 'vertical') throw new Error('could not generate vertical demo map');
+  const rec = fakeCtx();
+  const fills = [];
+  rec.fillRect = (x, y, w, h) => fills.push({ x, y, w, h, fillStyle: rec.fillStyle });
+  raid.update(1 / 60, 1200, 600);
+  raid.draw(rec, 1200, 600);
+  if (!fills.some(f => f.x === 0 && f.y === 0 && f.w === 1200 && f.h === 600 && f.fillStyle === '#0a0c0f')) {
+    throw new Error('raid draw did not clear the full wide viewport');
+  }
+});
 
 console.log('\n[2] Profile / economy');
 ok('fresh profile loads and starting gear present', () => {
@@ -412,7 +430,7 @@ ok('demo scroll fragments enable X normal extract', () => {
   raid.update(1 / 60, 800, 600);
   if (!result || result.outcome !== 'normal_extract') throw new Error('X did not trigger normal extract: ' + (result && result.outcome));
 });
-ok('demo extract zone starts and cancels perfect extract challenge', () => {
+ok('demo extract zone arms perfect extract only while standing still', () => {
   const carried = G.Profile.scavKit();
   carried.demo = true;
   const raid = new G.Raid(G.Locations[0], carried);
@@ -420,11 +438,28 @@ ok('demo extract zone starts and cancels perfect extract challenge', () => {
   const z = raid.map.extracts[0];
   raid.player.x = z.x; raid.player.y = z.y;
   raid._updateExtract(0.1);
-  if (!raid.dungeon.extractionChallenge) throw new Error('perfect extract challenge did not start');
-  if (!raid.extracting || raid.extracting.total !== G.DemoConfig.perfectExtractTime) throw new Error('extracting state not bound to perfect challenge');
+  if (!raid.dungeon.extractionChallenge || raid.dungeon.extractionChallenge.phase !== 'arming') throw new Error('perfect extract challenge did not arm');
+  if (!raid.extracting || raid.extracting.total !== G.DemoConfig.perfectExtractArmTime) throw new Error('extracting state not bound to arm timer');
+  raid.player.moving = true;
+  raid._updateExtract(G.DemoConfig.perfectExtractArmTime + 0.2);
+  if (raid.dungeon.extractionChallenge.phase !== 'arming' || raid.dungeon.extractionChallenge.t !== 0) throw new Error('moving player armed the challenge');
+  raid.player.moving = false;
   raid.player.x = z.x + z.r + 80;
   raid._updateExtract(0.1);
-  if (raid.dungeon.extractionChallenge || raid.extracting) throw new Error('perfect extract challenge did not cancel when leaving zone');
+  if (raid.dungeon.extractionChallenge || raid.extracting) throw new Error('unstarted perfect extract challenge did not reset when leaving zone');
+});
+ok('demo active perfect extract survives leaving the green zone', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  const z = raid.map.extracts[0];
+  raid.player.x = z.x; raid.player.y = z.y; raid.player.moving = false;
+  raid._updateExtract(G.DemoConfig.perfectExtractArmTime + 0.1);
+  if (!raid.dungeon.extractionChallenge || raid.dungeon.extractionChallenge.phase !== 'active') throw new Error('perfect extract did not activate after standing still');
+  raid.player.x = z.x + z.r + 140;
+  raid._updateExtract(0.1);
+  if (!raid.dungeon.extractionChallenge || raid.dungeon.extractionChallenge.phase !== 'active') throw new Error('active perfect extract was cancelled after leaving zone');
 });
 ok('demo normal portal immediately moves player to target room', () => {
   const carried = G.Profile.scavKit();
@@ -653,6 +688,9 @@ ok('demo perfect extract succeeds after hold timer and applies bonus', () => {
   raid.player.backpack = [{ id: 'v_cash', n: 10 }];
   const z = raid.map.extracts[0];
   raid.player.x = z.x; raid.player.y = z.y;
+  raid._updateExtract(G.DemoConfig.perfectExtractArmTime + 0.1);
+  if (!raid.dungeon.extractionChallenge || raid.dungeon.extractionChallenge.phase !== 'active') throw new Error('perfect extract did not activate');
+  raid.player.x = z.x + z.r + 140;
   for (let i = 0; i < G.DemoConfig.perfectExtractTime + 2; i++) {
     raid._updateExtract(1);
     if (result) break;

@@ -4,6 +4,7 @@ const path = require('path');
 
 const root = path.resolve(process.argv[2] || process.cwd());
 const port = Number(process.argv[3] || 8080);
+const host = process.argv[4] || '127.0.0.1';
 
 const types = {
   '.html': 'text/html; charset=utf-8',
@@ -42,6 +43,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`Serving ${root} at http://localhost:${port}`);
+server.listen(port, host, () => {
+  const displayHost = host === '0.0.0.0' ? 'localhost' : host;
+  console.log(`Serving ${root} at http://${displayHost}:${port}`);
 });

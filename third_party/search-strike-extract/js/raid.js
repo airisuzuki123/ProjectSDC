@@ -39,7 +39,7 @@
     this.killsByTier = { scav: 0, raider: 0, boss: 0 };   // fed to contract counters on extract
     this.paused = false;
     this.result = null;
-    this.extracting = null;       // {zone, t}
+    this.extracting = null;       // {zone, t, total, phase}
     this.invOpen = false;
     this.dungeon = this.demo ? {
       scrollFragments: 0,
@@ -804,8 +804,10 @@
         d.currentRoomId = target.id;
         d.portalCooldown = 0.55;
         d.roomEntryGrace = (G.DemoConfig && G.DemoConfig.roomEntryGraceTime) || 1.35;
-        this.extracting = null;
-        if (d.extractionChallenge) d.extractionChallenge = null;
+        if (!d.extractionChallenge || d.extractionChallenge.phase !== 'active') {
+          this.extracting = null;
+          if (d.extractionChallenge) d.extractionChallenge = null;
+        }
         this.cam.x = this.player.x; this.cam.y = this.player.y;
         this._pacifyRoomEnemies(fromRoomId);
         this._enterRoom(target);
@@ -1037,24 +1039,37 @@
       for (const z of this.map.extracts) {
         if (U.dist(p.x, p.y, z.x, z.y) < z.r) { inZone = z; break; }
       }
-      if (!inZone) {
-        if (d.extractionChallenge) this.toast(G.t('raid.toast.perfectExtractCancelled'));
-        d.extractionChallenge = null;
-        this.extracting = null;
-        return;
-      }
-
       let ch = d.extractionChallenge;
-      if (!ch || ch.zone !== inZone) {
+      if (!ch || (ch.phase !== 'active' && ch.zone !== inZone)) {
+        if (!inZone) {
+          d.extractionChallenge = null;
+          if (this.extracting && this.extracting.phase === 'arming') this.extracting = null;
+          return;
+        }
         ch = d.extractionChallenge = {
           zone: inZone,
           t: 0,
-          total: cfg.perfectExtractTime || 30,
+          total: cfg.perfectExtractArmTime || 2,
+          phase: 'arming',
           spawnTimer: 0,
         };
-        this.toast(G.t('raid.toast.perfectExtractStarted', { n: Math.round(ch.total) }));
       }
       this.extracting = ch;
+      if (ch.phase === 'arming') {
+        if (!inZone || p.moving) {
+          ch.t = 0;
+          this.extracting = ch;
+          return;
+        }
+        ch.t += dt;
+        if (ch.t < ch.total) return;
+        dt = ch.t - ch.total;
+        ch.phase = 'active';
+        ch.t = 0;
+        ch.total = cfg.perfectExtractTime || 30;
+        ch.spawnTimer = 0;
+        this.toast(G.t('raid.toast.perfectExtractStarted', { n: Math.round(ch.total) }));
+      }
       ch.t += dt;
       ch.spawnTimer -= dt;
       while (ch.spawnTimer <= 0) {
@@ -1219,6 +1234,8 @@
 
     /* ----------------------------- Render ------------------------------ */
     draw(ctx, w, h) {
+      ctx.fillStyle = '#0a0c0f';
+      ctx.fillRect(0, 0, w, h);
       ctx.save();
       this.cam.apply(ctx);
       this._drawWorld(ctx);
@@ -1523,6 +1540,7 @@
         armorFrac,
         glow: !!this.extracting,
       });
+      this._drawPlayerHealthBar(ctx, p);
       // search/heal/reload progress ring (drawn on top so it stays readable)
       const act = p.searching || p.healing || p.reloading;
       if (act) {
@@ -1531,6 +1549,23 @@
         ctx.lineWidth = 4;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 13, -Math.PI / 2, -Math.PI / 2 + U.TAU * frac); ctx.stroke();
       }
+    },
+
+    _drawPlayerHealthBar(ctx, p) {
+      if (!p || !p.maxHp) return;
+      const frac = U.clamp(p.hp / p.maxHp, 0, 1);
+      const bw = 38, bh = 5;
+      const x = p.x - bw / 2;
+      const y = p.y - p.r - 24;
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.72)';
+      ctx.fillRect(x - 1, y - 1, bw + 2, bh + 2);
+      ctx.fillStyle = frac > 0.5 ? '#3fbf5a' : frac > 0.25 ? '#d6a23b' : '#d63b3b';
+      ctx.fillRect(x, y, bw * frac, bh);
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x - 1, y - 1, bw + 2, bh + 2);
+      ctx.restore();
     },
 
     _drawBullets(ctx) {
@@ -1679,7 +1714,9 @@
         ctx.fillStyle = '#3aa14a'; ctx.fillRect(w / 2 - 110, h * 0.7, 220 * frac, 30);
         ctx.strokeStyle = '#9affb0'; ctx.strokeRect(w / 2 - 110, h * 0.7, 220, 30);
         const prompt = this.demo && this.dungeon && this.dungeon.extractionChallenge
-          ? G.t('raid.prompt.perfectExtracting', { n: Math.ceil(Math.max(0, total - this.extracting.t)) })
+          ? (this.extracting.phase === 'arming'
+            ? G.t('raid.prompt.perfectExtractArming', { n: Math.ceil(Math.max(0, total - this.extracting.t)) })
+            : G.t('raid.prompt.perfectExtracting', { n: Math.ceil(Math.max(0, total - this.extracting.t)) }))
           : G.t('raid.prompt.extracting');
         ctx.fillStyle = '#fff'; ctx.fillText(prompt, w / 2, h * 0.7 + 20);
       } else if (p.searching) {
