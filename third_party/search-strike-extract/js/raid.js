@@ -149,8 +149,8 @@
       if (!this.demo) return null;
       if (spawn && spawn.room && spawn.room.pathIndex < 2) return null;
       const cfg = G.DemoConfig || {};
-      if (tier === 'beast' && U.chance(cfg.roleRusherChance || 0)) return 'rusher';
-      if (tier === 'raider' && U.chance(cfg.roleMarksmanChance || 0)) return 'marksman';
+      if (tier === 'beast' && U.chance(U.clamp((cfg.roleRusherChance || 0) * this._curseModifier('roleRusherChanceMultiplier', 1), 0, 1))) return 'rusher';
+      if (tier === 'raider' && U.chance(U.clamp((cfg.roleMarksmanChance || 0) * this._curseModifier('roleMarksmanChanceMultiplier', 1), 0, 1))) return 'marksman';
       return null;
     },
 
@@ -598,10 +598,11 @@
     _openCurseChoice() {
       this.dungeon.selectedSkills = this.dungeon.selectedSkills || [];
       this.dungeon.selectedCurses = this.dungeon.selectedCurses || [];
-      const curses = (G.DemoCurses || [])
+      const randomPools = G.DemoRandomPools || {};
+      const curses = (randomPools.curses || G.DemoCurses || [])
         .map(c => Object.assign({ type: 'curse' }, c))
         .filter(c => this.dungeon.selectedCurses.indexOf(c.id) < 0);
-      const skills = (G.DemoSkills || [])
+      const skills = (randomPools.skills || G.DemoSkills || [])
         .map(s => Object.assign({ type: 'skill', rewardBonus: 0 }, s))
         .filter(s => this.dungeon.selectedSkills.indexOf(s.id) < 0);
       const choices = [];
@@ -673,6 +674,8 @@
         m.playerTakenDamageMultiplier *= e.playerTakenDamageMultiplier || 1;
         m.eliteDropMultiplier *= e.eliteDropMultiplier || 1;
         m.eliteSpawnChanceMultiplier *= e.eliteSpawnChanceMultiplier || 1;
+        m.roleRusherChanceMultiplier *= e.roleRusherChanceMultiplier || 1;
+        m.roleMarksmanChanceMultiplier *= e.roleMarksmanChanceMultiplier || 1;
       }
       d.modifiers = m;
       this.player.backpackSlotBonus = m.backpackSlotsBonus;
@@ -1198,7 +1201,7 @@
       const drop = (id, n) => this.groundItems.push({ x: e.x + scatter(), y: e.y + scatter(), id, n, pop: 0.3, delay: 0.25, bob: Math.random() * 6 });
       if (this.demo && this.dungeon) {
         drop((G.DemoConfig && G.DemoConfig.coinItemId) || 'd_gold_coin', e.tier === 'raider' || e.tier === 'boss' ? U.randInt(2, 3) : U.randInt(1, 2));
-        const table = G.DemoLootDrops || [];
+        const table = (G.DemoRandomPools && G.DemoRandomPools.lootDrops) || G.DemoLootDrops || [];
         const rolls = e.tier === 'raider' || e.tier === 'boss' ? 2 : 1;
         for (let i = 0; i < rolls && table.length; i++) {
           const pick = this._weightedDungeonDrop(table);
@@ -2372,8 +2375,10 @@
       playerFireRateMultiplier: 1,
       playerProjectileRangeMultiplier: 1,
       playerTakenDamageMultiplier: 1,
-      eliteDropMultiplier: 1,
-      eliteSpawnChanceMultiplier: 1,
+        eliteDropMultiplier: 1,
+        eliteSpawnChanceMultiplier: 1,
+        roleRusherChanceMultiplier: 1,
+        roleMarksmanChanceMultiplier: 1,
     };
   }
 

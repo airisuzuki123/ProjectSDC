@@ -118,19 +118,34 @@
   // separate gameplay path or any persistent progression state.
   G.Challenges = [
     {
-      id: 'rising_tide', recommendedMin: 5, recommendedMax: 8,
+      id: 'rising_tide', w: 1, recommendedMin: 5, recommendedMax: 8,
       mapRules: { layout: 'chain', orientation: 'vertical', mainPathMin: 5, mainPathMax: 5, rewardChance: 0.5, rewardMax: 1 },
       modifiers: { monsterLevelIntervalDelta: -15, monsterSpawnIntervalMultiplier: 0.85 },
     },
     {
-      id: 'elite_hunt', recommendedMin: 4, recommendedMax: 7,
+      id: 'elite_hunt', w: 1, recommendedMin: 4, recommendedMax: 7,
       mapRules: { layout: 'chain', orientation: 'horizontal', mainPathMin: 4, mainPathMax: 4, rewardChance: 1, rewardMax: 2 },
       modifiers: { eliteSpawnChanceMultiplier: 1.8, eliteDropMultiplier: 1.25 },
     },
     {
-      id: 'scarce_escape', recommendedMin: 5, recommendedMax: 8,
+      id: 'scarce_escape', w: 1, recommendedMin: 5, recommendedMax: 8,
       mapRules: { layout: 'chain', mainPathMin: 4, mainPathMax: 4, rewardChance: 0, rewardMax: 0 },
       modifiers: { scrollDropMultiplier: 0.72, searchSpeedMultiplier: 0.85 },
+    },
+    {
+      id: 'charge_gauntlet', w: 1, recommendedMin: 5, recommendedMax: 8,
+      mapRules: { layout: 'chain', orientation: 'vertical', mainPathMin: 5, mainPathMax: 5, rewardChance: 0.5, rewardMax: 1 },
+      modifiers: { roleRusherChanceMultiplier: 2.0, monsterSpawnIntervalMultiplier: 0.92 },
+    },
+    {
+      id: 'sightline_siege', w: 1, recommendedMin: 4, recommendedMax: 7,
+      mapRules: { layout: 'chain', orientation: 'horizontal', mainPathMin: 4, mainPathMax: 4, rewardChance: 1, rewardMax: 2 },
+      modifiers: { roleMarksmanChanceMultiplier: 2.0, eliteSpawnChanceMultiplier: 1.25 },
+    },
+    {
+      id: 'fortune_route', w: 1, recommendedMin: 5, recommendedMax: 8,
+      mapRules: { layout: 'chain', mainPathMin: 5, mainPathMax: 5, rewardChance: 1, rewardMax: 2 },
+      modifiers: { highValueDropMultiplier: 1.35, monsterSpawnIntervalMultiplier: 0.88 },
     },
   ];
   G.getChallenge = function (id) { return (G.Challenges || []).find(c => c.id === id) || null; };
@@ -235,6 +250,21 @@
       effects: { searchSpeedMultiplier: 1.20 },
     },
   ];
+
+  // Phase 34 keeps all in-run random sources discoverable through one registry.
+  // Individual systems still own their draw rules (for example, choice de-duplication).
+  G.DemoRandomPools = {
+    challenges: G.Challenges,
+    lootDrops: G.DemoLootDrops,
+    curses: G.DemoCurses,
+    skills: G.DemoSkills,
+  };
+  G.pickDemoRandom = function (poolId, pool) {
+    const source = pool || (G.DemoRandomPools && G.DemoRandomPools[poolId]) || [];
+    if (!source.length) return null;
+    return source.some(entry => typeof entry.w === 'number') ? G.Utils.weighted(source) : G.Utils.choice(source);
+  };
+  G.pickRandomChallenge = function () { return G.pickDemoRandom('challenges'); };
 
   /* ------------------------- Item database ------------------------------ */
   // type: weapon | ammo | armor | med | valuable | key

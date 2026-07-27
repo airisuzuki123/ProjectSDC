@@ -163,9 +163,14 @@ ok('demo pace reference does not force MIA, while regular raids retain their tim
   regular.update(1 / 60, 800, 600);
   if (!regular.result || regular.result.outcome !== 'mia') throw new Error('regular raid timer no longer settles as MIA');
 });
-ok('challenge definitions apply modifiers and settle with identity', () => {
-  const expected = ['rising_tide', 'elite_hunt', 'scarce_escape'];
+ok('challenge pool applies map rules, modifiers and settlement identity', () => {
+  const expected = ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'sightline_siege', 'fortune_route'];
   if (!G.Challenges || G.Challenges.length !== expected.length) throw new Error('challenge registry is incomplete');
+  if (!G.DemoRandomPools || G.DemoRandomPools.challenges !== G.Challenges || G.DemoRandomPools.lootDrops !== G.DemoLootDrops || G.DemoRandomPools.curses !== G.DemoCurses || G.DemoRandomPools.skills !== G.DemoSkills) throw new Error('random pools are not registered');
+  for (let i = 0; i < 20; i++) {
+    const picked = G.pickRandomChallenge();
+    if (!picked || expected.indexOf(picked.id) < 0) throw new Error('challenge pool returned an invalid entry');
+  }
   for (const id of expected) {
     const carried = G.Profile.scavKit();
     carried.demo = true;
@@ -183,6 +188,9 @@ ok('challenge definitions apply modifiers and settle with identity', () => {
     if (id === 'rising_tide' && raid._monsterLevelInterval() !== G.DemoConfig.monsterLevelInterval - 15) throw new Error('rising tide modifier missing');
     if (id === 'elite_hunt' && raid._curseModifier('eliteSpawnChanceMultiplier', 1) !== 1.8) throw new Error('elite hunt modifier missing');
     if (id === 'scarce_escape' && raid._curseModifier('scrollDropMultiplier', 1) !== 0.72) throw new Error('scarce escape modifier missing');
+    if (id === 'charge_gauntlet' && raid._curseModifier('roleRusherChanceMultiplier', 1) !== 2) throw new Error('charge gauntlet modifier missing');
+    if (id === 'sightline_siege' && raid._curseModifier('roleMarksmanChanceMultiplier', 1) !== 2) throw new Error('sightline siege modifier missing');
+    if (id === 'fortune_route' && raid._curseModifier('highValueDropMultiplier', 1) !== 1.35) throw new Error('fortune route modifier missing');
     raid._finish('normal_extract');
     if (!raid.result || raid.result.challengeId !== id) throw new Error('challenge identity missing from settlement: ' + id);
   }
@@ -1182,7 +1190,6 @@ ok('all UI screens & overlays render', () => {
   G.UI.init(host);
   G.UI.showIntro();
   G.UI.showHub();
-  G.UI.showChallenges();
   G.UI.showDeploy();
   G.UI.selectedLocation = G.Locations[0];
   G.UI.showLoadout();
@@ -1364,7 +1371,7 @@ ok('i18n: a full raid + all UI screens render in Chinese without error', () => {
   G.Profile.setLang('zh');
   // UI screens in zh
   G.UI.init({ startRaid() {}, toHub() {} });
-  G.UI.showIntro(); G.UI.showHub(); G.UI.showChallenges(); G.UI.showDeploy();
+  G.UI.showIntro(); G.UI.showHub(); G.UI.showDeploy();
   G.UI.selectedLocation = G.Locations[1]; G.UI.showLoadout();
   G.UI.showStash(); G.UI.showTrader('buy'); G.UI.showTrader('sell'); G.UI.showSettings();
   G.UI.showResults({ outcome: 'extract', kills: 2, time: 80, lootValue: 900, items: 4, scav: false }, { carriedValue: 500, extract: { sold: 120, scav: false } });

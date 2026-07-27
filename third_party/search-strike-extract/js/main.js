@@ -99,7 +99,10 @@
       const loc = G.Locations.find(l => l.id === cfg.locationId) || G.Locations[0];
       const carried = G.Profile.scavKit();
       carried.demo = true;
-      carried.challengeId = challengeId || null;
+      // Player-facing entry is random. An explicit id remains available for
+      // deterministic smoke coverage and internal debugging only.
+      const challenge = challengeId ? G.getChallenge(challengeId) : (G.pickRandomChallenge && G.pickRandomChallenge());
+      carried.challengeId = challenge && challenge.id;
       this.startRaid(loc, carried);
     },
 
