@@ -94,16 +94,25 @@
       G.Audio.startAmbient(loc && loc.id);   // per-scene background ambience
     },
 
-    startDemoRaid(challengeId) {
+    startDemoRaid(challengeId, levelId) {
+      let opts = {};
+      if (challengeId && typeof challengeId === 'object') opts = challengeId;
+      else opts = { challengeId, levelId };
       const cfg = G.DemoConfig || {};
       const loc = G.Locations.find(l => l.id === cfg.locationId) || G.Locations[0];
+      const level = (opts.levelId && G.getDemoLevel && G.getDemoLevel(opts.levelId)) || (G.getDefaultDemoLevel && G.getDefaultDemoLevel());
+      if (level && G.Profile.canStartDemoLevel && !G.Profile.canStartDemoLevel(level.id)) {
+        return { error: G.t('toast.level_locked') };
+      }
       const carried = G.Profile.scavKit();
       carried.demo = true;
+      carried.levelId = level && level.id;
       // Player-facing entry is random. An explicit id remains available for
       // deterministic smoke coverage and internal debugging only.
-      const challenge = challengeId ? G.getChallenge(challengeId) : (G.pickRandomChallenge && G.pickRandomChallenge());
+      const challenge = opts.challengeId ? G.getChallenge(opts.challengeId) : (G.pickRandomChallenge && G.pickRandomChallenge(level));
       carried.challengeId = challenge && challenge.id;
       this.startRaid(loc, carried);
+      return { ok: true, levelId: carried.levelId, challengeId: carried.challengeId };
     },
 
     finishRaid(res) {
@@ -112,7 +121,8 @@
       let ex = null;
       const extracted = res.outcome === 'extract' || res.outcome === 'normal_extract' || res.outcome === 'perfect_extract';
       if (this.raid.demo) {
-        // In-raid demo results are display-only; do not mutate stash/economy.
+        if (res.levelId && G.Profile.recordDemoLevelResult) G.Profile.recordDemoLevelResult(res.levelId, res);
+        // In-raid demo results do not mutate stash/economy.
       } else if (extracted) {
         ex = G.Profile.commitExtract(p, this.raid.scav);
         if (res.outcome === 'extract') G.Profile.recordRaid(res);

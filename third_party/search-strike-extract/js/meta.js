@@ -7,6 +7,7 @@
   'use strict';
   const G = window.G;
   const C = G.Config;
+  const U = G.Utils;
 
   // caliber -> ammo item id
   const AMMO_ITEM = {};
@@ -45,9 +46,32 @@
         // the relevant counter snapshotted when that contract opened (so
         // counter-goals measure progress *since* you took the favor).
         contracts: { stage: 0, base: null },
+        demoProgress: this._freshDemoProgress(),
         seenIntro: false,
         version: 1,
       };
+    },
+
+    _freshDemoProgress() {
+      const progress = {
+        highestUnlockedLevel: 1,
+        levels: {},
+        history: [],
+        version: 1,
+      };
+      for (const level of G.DemoLevels || []) {
+        progress.levels[level.id] = {
+          unlocked: level.order === 1,
+          completed: false,
+          normalExtracts: 0,
+          perfectExtracts: 0,
+          failures: 0,
+          abandons: 0,
+          attempts: 0,
+          bestPerfectTime: null,
+        };
+      }
+      return progress;
     },
 
     load() {
@@ -76,6 +100,7 @@
       // contracts / progress: repair shape on corrupt or legacy saves, then make
       // sure the active contract has a baseline snapshot to measure against.
       this._sanitizeProgress();
+      this._sanitizeDemoProgress();
       this._syncContractBase();
       return this.data;
     },
@@ -93,9 +118,78 @@
       if (typeof c.stage !== 'number' || c.stage < 0) c.stage = 0;
       if (c.stage > G.Contracts.length) c.stage = G.Contracts.length;
     },
+    _sanitizeDemoProgress() {
+      const fresh = this._freshDemoProgress();
+      const raw = (this.data.demoProgress && typeof this.data.demoProgress === 'object' && !Array.isArray(this.data.demoProgress))
+        ? this.data.demoProgress : {};
+      const maxOrder = (G.DemoLevels || []).length || 1;
+      const highest = Number.isFinite(raw.highestUnlockedLevel) ? Math.floor(raw.highestUnlockedLevel) : 1;
+      const progress = {
+        highestUnlockedLevel: U.clamp(highest, 1, maxOrder),
+        levels: {},
+        history: Array.isArray(raw.history) ? raw.history.slice(-50).filter(Boolean) : [],
+        version: 1,
+      };
+      for (const level of G.DemoLevels || []) {
+        const prev = raw.levels && raw.levels[level.id] && typeof raw.levels[level.id] === 'object' ? raw.levels[level.id] : {};
+        const base = fresh.levels[level.id];
+        progress.levels[level.id] = {
+          unlocked: level.order <= progress.highestUnlockedLevel,
+          completed: !!prev.completed,
+          normalExtracts: Number.isFinite(prev.normalExtracts) ? Math.max(0, prev.normalExtracts | 0) : base.normalExtracts,
+          perfectExtracts: Number.isFinite(prev.perfectExtracts) ? Math.max(0, prev.perfectExtracts | 0) : base.perfectExtracts,
+          failures: Number.isFinite(prev.failures) ? Math.max(0, prev.failures | 0) : base.failures,
+          abandons: Number.isFinite(prev.abandons) ? Math.max(0, prev.abandons | 0) : base.abandons,
+          attempts: Number.isFinite(prev.attempts) ? Math.max(0, prev.attempts | 0) : base.attempts,
+          bestPerfectTime: Number.isFinite(prev.bestPerfectTime) && prev.bestPerfectTime > 0 ? Math.floor(prev.bestPerfectTime) : null,
+        };
+      }
+      this.data.demoProgress = progress;
+    },
     save() { Save.write(this.data); },
-    resetAll() { Save.clear(); this.data = this.fresh(); this._syncContractBase(); this.save(); },
+    resetAll() { Save.clear(); this.data = this.fresh(); this._sanitizeDemoProgress(); this._syncContractBase(); this.save(); },
     markIntroSeen() { this.data.seenIntro = true; this.save(); },
+
+    demoProgress() { if (!this.data.demoProgress) this._sanitizeDemoProgress(); return this.data.demoProgress; },
+    isDemoLevelUnlocked(levelId) {
+      const level = G.getDemoLevel && G.getDemoLevel(levelId);
+      if (!level) return false;
+      return level.order <= this.demoProgress().highestUnlockedLevel;
+    },
+    canStartDemoLevel(levelId) {
+      const fallback = G.getDefaultDemoLevel && G.getDefaultDemoLevel();
+      return this.isDemoLevelUnlocked(levelId || (fallback && fallback.id));
+    },
+    recordDemoLevelResult(levelId, result) {
+      const level = G.getDemoLevel && G.getDemoLevel(levelId);
+      if (!level || !result) return { ok: false };
+      const progress = this.demoProgress();
+      const row = progress.levels[level.id];
+      if (!row) return { ok: false };
+      const outcome = result.outcome || 'unknown';
+      row.attempts++;
+      if (outcome === 'normal_extract') row.normalExtracts++;
+      else if (outcome === 'perfect_extract') {
+        row.perfectExtracts++;
+        row.completed = true;
+        if (Number.isFinite(result.time) && (row.bestPerfectTime == null || result.time < row.bestPerfectTime)) row.bestPerfectTime = Math.floor(result.time);
+        if (level.order === progress.highestUnlockedLevel && level.order < (G.DemoLevels || []).length) progress.highestUnlockedLevel = level.order + 1;
+      } else if (outcome === 'abandoned') row.abandons++;
+      else row.failures++;
+      for (const l of G.DemoLevels || []) {
+        if (progress.levels[l.id]) progress.levels[l.id].unlocked = l.order <= progress.highestUnlockedLevel;
+      }
+      progress.history.push({
+        levelId: level.id,
+        order: level.order,
+        outcome,
+        challengeId: result.challengeId || null,
+        time: Number.isFinite(result.time) ? Math.floor(result.time) : 0,
+      });
+      progress.history = progress.history.slice(-50);
+      this.save();
+      return { ok: true, highestUnlockedLevel: progress.highestUnlockedLevel };
+    },
 
     // ---- money ----
     money() { return this.data.money; },

@@ -195,6 +195,67 @@ ok('challenge pool applies map rules, modifiers and settlement identity', () => 
     if (!raid.result || raid.result.challengeId !== id) throw new Error('challenge identity missing from settlement: ' + id);
   }
 });
+ok('phase 36 level data defines five sequential room budgets and challenge pools', () => {
+  const levels = G.DemoLevels || [];
+  if (levels.length !== 5) throw new Error('expected five demo levels');
+  const budgets = levels.map(l => l.regularRoomCount).join(',');
+  if (budgets !== '4,5,6,7,8') throw new Error('regular room budget mismatch: ' + budgets);
+  for (let i = 0; i < levels.length; i++) {
+    const level = levels[i];
+    if (level.order !== i + 1) throw new Error('level order mismatch');
+    if (!Array.isArray(level.challengePool) || !level.challengePool.length) throw new Error('level has no challenge pool: ' + level.id);
+    for (const id of level.challengePool) if (!G.getChallenge(id)) throw new Error('unknown challenge in level pool: ' + id);
+    for (let j = 0; j < 10; j++) {
+      const picked = G.pickChallengeForLevel(level);
+      if (!picked || level.challengePool.indexOf(picked.id) < 0) throw new Error('level picked challenge outside its pool');
+    }
+  }
+});
+ok('phase 36 level room budgets count only regular challenge rooms', () => {
+  const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
+  for (const level of G.DemoLevels || []) {
+    const carried = Object.assign(G.Profile.scavKit(), { demo: true, levelId: level.id, challengeId: level.challengePool[0] });
+    const raid = new G.Raid(loc, carried);
+    const graph = raid.map.roomGraph;
+    const mainRooms = graph.mainRoomIds.map(id => raid.map.rooms.find(r => r.id === id));
+    const regular = mainRooms.filter(r => r.kind === 'combat');
+    if (graph.levelId !== level.id) throw new Error('level identity missing from map graph');
+    if (graph.regularRoomCount !== level.regularRoomCount) throw new Error('graph regular budget mismatch');
+    if (regular.length !== level.regularRoomCount) throw new Error(level.id + ' regular rooms=' + regular.length);
+    if (mainRooms.filter(r => r.kind === 'spawn').length !== 1) throw new Error('spawn room counted incorrectly');
+    if (mainRooms.filter(r => r.kind === 'extract').length !== 1) throw new Error('extract room counted incorrectly');
+    for (const rid of graph.rewardRoomIds || []) {
+      const reward = raid.map.rooms.find(r => r.id === rid);
+      if (!reward || reward.kind !== 'reward' || reward.main !== false) throw new Error('reward room is not separate from regular budget');
+    }
+  }
+});
+ok('phase 36 demo progress migrates old saves and unlocks sequentially', () => {
+  store[G.Config.SAVE_KEY] = JSON.stringify({
+    stash: [{ id: 'w_pistol', n: 1 }],
+    money: 777,
+    settings: { sfx: false, volume: 0.2, lang: 'zh' },
+  });
+  G.Profile.load();
+  const pr = G.Profile.data.demoProgress;
+  if (!pr || pr.highestUnlockedLevel !== 1) throw new Error('legacy save did not initialize level progress');
+  if (!pr.levels.level_1.unlocked || pr.levels.level_2.unlocked) throw new Error('initial unlock state is wrong');
+  if (G.Profile.money() !== 777 || G.Profile.data.settings.lang !== 'zh') throw new Error('legacy base fields were not preserved');
+  G.Profile.recordDemoLevelResult('level_1', { outcome: 'normal_extract', time: 300, challengeId: 'elite_hunt' });
+  if (G.Profile.data.demoProgress.highestUnlockedLevel !== 1) throw new Error('normal extract unlocked the next level');
+  G.Profile.recordDemoLevelResult('level_1', { outcome: 'perfect_extract', time: 360, challengeId: 'elite_hunt' });
+  if (G.Profile.data.demoProgress.highestUnlockedLevel !== 2) throw new Error('perfect extract did not unlock level 2');
+  if (!G.Profile.data.demoProgress.levels.level_2.unlocked || G.Profile.data.demoProgress.levels.level_3.unlocked) throw new Error('unlock chain skipped a level');
+  G.Profile.recordDemoLevelResult('level_2', { outcome: 'failed', time: 220, challengeId: 'rising_tide' });
+  if (G.Profile.data.demoProgress.highestUnlockedLevel !== 2) throw new Error('failure unlocked progression');
+});
+ok('phase 36 locked levels cannot be started from the demo entry', () => {
+  G.Profile.resetAll();
+  const res = G.Game.startDemoRaid(null, 'level_2');
+  if (!res || !res.error) throw new Error('locked level start was allowed');
+  G.Profile.recordDemoLevelResult('level_1', { outcome: 'perfect_extract', time: 360, challengeId: 'elite_hunt' });
+  if (!G.Profile.canStartDemoLevel('level_2')) throw new Error('unlocked level is not startable');
+});
 ok('demo HUD does not render a countdown', () => {
   const demo = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
   demo.enemies = [];

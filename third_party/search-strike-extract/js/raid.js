@@ -20,15 +20,27 @@
     f8: 'debugPerfectExtract', f9: 'debugDeath',
   };
 
+  function demoMapRules(level, challenge) {
+    const rules = Object.assign({}, challenge && challenge.mapRules);
+    if (level) {
+      rules.regularRoomCount = level.regularRoomCount;
+      rules.mainPathMin = level.regularRoomCount + 2;
+      rules.mainPathMax = level.regularRoomCount + 2;
+    }
+    return rules;
+  }
+
   function Raid(location, carried) {
     this.location = location;
     this.scav = !!carried.scav;
     this.demo = !!carried.demo;
+    this.level = this.demo && carried.levelId && G.getDemoLevel ? G.getDemoLevel(carried.levelId) : null;
     this.challenge = this.demo && carried.challengeId && G.getChallenge ? G.getChallenge(carried.challengeId) : null;
     this.map = G.MapGen.generate(location, {
       demo: this.demo,
+      levelId: this.level && this.level.id,
       challengeId: this.challenge && this.challenge.id,
-      mapRules: this.challenge && this.challenge.mapRules,
+      mapRules: demoMapRules(this.level, this.challenge),
     });
     this.cam = new G.Camera();
     this.particles = new G.Particles();
@@ -57,6 +69,7 @@
       rewardMultiplier: 1,
       selectedCurses: [],
       selectedSkills: [],
+      level: this.level,
       challenge: this.challenge,
       curseChoices: [],
       cursePending: false,
@@ -1278,6 +1291,8 @@
         items: failed ? 0 : baseItems,
         time: Math.round(this.time), scav: this.scav,
         locId: this.location && this.location.id,   // for contract counters
+        levelId: this.dungeon && this.dungeon.level ? this.dungeon.level.id : undefined,
+        levelOrder: this.dungeon && this.dungeon.level ? this.dungeon.level.order : undefined,
         challengeId: this.dungeon && this.dungeon.challenge ? this.dungeon.challenge.id : undefined,
         killsByTier: this.killsByTier,
         scrollFragments: this.dungeon ? this.dungeon.scrollFragments : undefined,

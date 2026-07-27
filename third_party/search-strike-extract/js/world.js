@@ -381,8 +381,13 @@
     const rules = (opts && opts.mapRules) || {};
     const ruleValue = (key, fallback) => rules[key] == null ? fallback : rules[key];
     const roomW = cfg.roomTileW || 8, roomH = cfg.roomTileH || 7, gap = cfg.roomGap || 2, margin = 2;
-    const mainPathMin = Math.max(3, Math.floor(ruleValue('mainPathMin', cfg.roomMainPathMin || 4)));
-    const mainPathMax = Math.max(mainPathMin, Math.floor(ruleValue('mainPathMax', cfg.roomMainPathMax || 5)));
+    const regularRoomCount = rules.regularRoomCount == null ? null : Math.max(1, Math.floor(rules.regularRoomCount));
+    const mainPathMin = regularRoomCount == null
+      ? Math.max(3, Math.floor(ruleValue('mainPathMin', cfg.roomMainPathMin || 4)))
+      : regularRoomCount + 2;
+    const mainPathMax = regularRoomCount == null
+      ? Math.max(mainPathMin, Math.floor(ruleValue('mainPathMax', cfg.roomMainPathMax || 5)))
+      : mainPathMin;
     const mainCount = rng.int(mainPathMin, mainPathMax);
     const rewardMax = Math.max(0, Math.floor(ruleValue('rewardMax', cfg.roomRewardMax == null ? 2 : cfg.roomRewardMax)));
     const rewardChance = U.clamp(ruleValue('rewardChance', cfg.roomRewardChance == null ? 0.7 : cfg.roomRewardChance), 0, 1);
@@ -566,7 +571,9 @@
         layout: 'isaac_chain',
         orientation: vertical ? 'vertical' : 'horizontal',
         challengeId: opts && opts.challengeId,
-        mapRules: { mainPathMin, mainPathMax, rewardChance, rewardMax, orientation },
+        levelId: opts && opts.levelId,
+        regularRoomCount,
+        mapRules: { mainPathMin, mainPathMax, rewardChance, rewardMax, orientation, regularRoomCount },
         mainRoomIds: mainRooms.map(r => r.id),
         rewardRoomId: rewardRooms[0] && rewardRooms[0].id,
         rewardRoomIds: rewardRooms.map(r => r.id),

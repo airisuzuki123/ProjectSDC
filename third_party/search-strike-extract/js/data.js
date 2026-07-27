@@ -154,6 +154,45 @@
   ];
   G.getChallenge = function (id) { return (G.Challenges || []).find(c => c.id === id) || null; };
 
+  G.DemoLevels = [
+    {
+      id: 'level_1', order: 1, regularRoomCount: 4, difficultyMultiplier: 1.00,
+      shopUnlockGroup: 'starter',
+      challengePool: ['elite_hunt', 'scarce_escape', 'fortune_route'],
+    },
+    {
+      id: 'level_2', order: 2, regularRoomCount: 5, difficultyMultiplier: 1.08,
+      shopUnlockGroup: 'field',
+      challengePool: ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet'],
+    },
+    {
+      id: 'level_3', order: 3, regularRoomCount: 6, difficultyMultiplier: 1.16,
+      shopUnlockGroup: 'breach',
+      challengePool: ['rising_tide', 'charge_gauntlet', 'sightline_siege', 'fortune_route'],
+    },
+    {
+      id: 'level_4', order: 4, regularRoomCount: 7, difficultyMultiplier: 1.25,
+      shopUnlockGroup: 'deep',
+      challengePool: ['rising_tide', 'elite_hunt', 'charge_gauntlet', 'sightline_siege', 'fortune_route'],
+    },
+    {
+      id: 'level_5', order: 5, regularRoomCount: 8, difficultyMultiplier: 1.35,
+      shopUnlockGroup: 'abyss',
+      challengePool: ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'sightline_siege', 'fortune_route'],
+    },
+  ];
+  G.getDemoLevel = function (idOrOrder) {
+    const levels = G.DemoLevels || [];
+    if (typeof idOrOrder === 'number') return levels.find(l => l.order === idOrOrder) || null;
+    return levels.find(l => l.id === idOrOrder) || null;
+  };
+  G.getDefaultDemoLevel = function () { return G.getDemoLevel(1); };
+  G.pickChallengeForLevel = function (level) {
+    const ids = level && Array.isArray(level.challengePool) ? level.challengePool : [];
+    const pool = ids.map(id => G.getChallenge(id)).filter(Boolean);
+    return G.pickDemoRandom('challenges', pool.length ? pool : G.Challenges);
+  };
+
   G.DemoLootDrops = [
     { id: 'v_canned', w: 10, qty: [1, 1] },
     { id: 'v_water', w: 10, qty: [1, 1] },
@@ -272,7 +311,7 @@
     if (!source.length) return null;
     return source.some(entry => typeof entry.w === 'number') ? G.Utils.weighted(source) : G.Utils.choice(source);
   };
-  G.pickRandomChallenge = function () { return G.pickDemoRandom('challenges'); };
+  G.pickRandomChallenge = function (level) { return level ? G.pickChallengeForLevel(level) : G.pickDemoRandom('challenges'); };
 
   /* ------------------------- Item database ------------------------------ */
   // type: weapon | ammo | armor | med | valuable | key
