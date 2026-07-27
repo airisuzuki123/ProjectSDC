@@ -2050,9 +2050,10 @@
       if (this.time >= T) return;
       const fade = this.time > T - 2 ? (T - this.time) / 2 : 1;
       const touch = Input.touchEnabled;
+      const lootKey = this.demo ? 'raid.help.demoLoot' : (touch ? 'raid.help.touch.loot' : 'raid.help.loot');
       const lines = touch
-        ? [G.t('raid.help.touch.move'), G.t('raid.help.touch.aim'), G.t('raid.help.touch.loot'), G.t('raid.help.touch.items'), G.t('raid.help.extract')]
-        : [G.t('raid.help.move'), G.t('raid.help.aim'), G.t('raid.help.loot'), G.t('raid.help.items'), G.t('raid.help.extract')];
+        ? [G.t('raid.help.touch.move'), G.t('raid.help.touch.aim'), G.t(lootKey), G.t('raid.help.touch.items'), G.t('raid.help.extract')]
+        : [G.t('raid.help.move'), G.t('raid.help.aim'), G.t(lootKey), G.t('raid.help.items'), G.t('raid.help.extract')];
       const title = G.t('raid.help.title');
       ctx.save();
       ctx.globalAlpha = U.clamp(fade, 0, 1);

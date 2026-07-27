@@ -218,6 +218,15 @@ ok('vertical demo room map clears the full viewport before drawing', () => {
     throw new Error('raid draw did not clear the full wide viewport');
   }
 });
+ok('demo help describes automatic resource search', () => {
+  const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  const rec = fakeCtx();
+  const labels = [];
+  rec.fillText = text => labels.push(text);
+  G.Input.resetTouch();
+  raid.draw(rec, 800, 600);
+  if (!labels.includes(G.t('raid.help.demoLoot'))) throw new Error('demo help did not describe automatic search');
+});
 
 console.log('\n[2] Profile / economy');
 ok('fresh profile loads and starting gear present', () => {
