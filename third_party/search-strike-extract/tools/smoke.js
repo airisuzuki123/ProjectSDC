@@ -151,11 +151,58 @@ ok('demo room map generates a short main path with portals', () => {
     }
   }
 });
-ok('demo raid extends the timer without changing regular raid time', () => {
+ok('demo pace reference does not force MIA, while regular raids retain their timer', () => {
   const demo = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
   const regular = new G.Raid(G.Locations[0], G.Profile.scavKit());
-  if (demo.timeLeft !== G.DemoConfig.raidTimeLimit) throw new Error('demo raid time limit not applied');
-  if (regular.timeLeft !== G.Config.RAID_TIME) throw new Error('regular raid time limit changed');
+  demo.enemies = [];
+  demo.timeLeft = 0;
+  demo.update(1 / 60, 800, 600);
+  if (demo.result) throw new Error('demo pace reference forced an MIA result');
+  regular.enemies = [];
+  regular.timeLeft = 0;
+  regular.update(1 / 60, 800, 600);
+  if (!regular.result || regular.result.outcome !== 'mia') throw new Error('regular raid timer no longer settles as MIA');
+});
+ok('demo HUD does not render a countdown', () => {
+  const demo = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  demo.enemies = [];
+  const labels = [];
+  const rec = fakeCtx();
+  rec.fillText = (text) => labels.push(String(text));
+  demo.draw(rec, 800, 600);
+  if (labels.some(text => /^\d+:\d\d$/.test(text))) throw new Error('demo HUD rendered a countdown');
+});
+ok('demo HUD shows threat progress, gold and selected curse details', () => {
+  const demo = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  const d = demo.dungeon;
+  d.monsterLevel = 2;
+  d.monsterLevelTimer = demo._monsterLevelInterval() * 0.5;
+  d.gold = 13;
+  d.selectedCurses = ['greedy_hand'];
+  demo._layoutDemoHud(800, 600);
+  if (demo._curseHudButtons.length !== 1) throw new Error('selected curse did not receive a HUD icon');
+  const icon = demo._curseHudButtons[0];
+  G.Input.touchEnabled = false;
+  G.Input.mouse.x = icon.x + icon.w / 2;
+  G.Input.mouse.y = icon.y + icon.h / 2;
+  G.Input._mouseEdge = true;
+  demo._handleCurseHudInput();
+  if (demo._curseTooltipId !== 'greedy_hand') throw new Error('desktop click did not open the curse tooltip');
+  G.Input._mouseEdge = false;
+  G.Input.touchEnabled = true;
+  demo._layoutDemoHud(800, 600);
+  G.Input._actionQueue.add('curseHud0');
+  demo._handleCurseHudInput();
+  if (demo._curseTooltipId !== null) throw new Error('touch tap did not toggle the curse tooltip');
+  G.Input.touchEnabled = false;
+  demo._curseTooltipId = 'greedy_hand';
+  const labels = [];
+  const rec = fakeCtx();
+  rec.fillText = (text) => labels.push(String(text));
+  demo.draw(rec, 800, 600);
+  if (!labels.includes(G.t('raid.hud.monsterLevel', { n: 2 }))) throw new Error('monster level missing from HUD');
+  if (!labels.includes(G.t('raid.hud.gold', { n: 13 }))) throw new Error('dungeon gold missing from HUD');
+  if (!labels.includes(G.t('curse.greedy_hand.name')) || !labels.includes(G.t('curse.greedy_hand.desc'))) throw new Error('curse tooltip missing localized details');
 });
 ok('demo room map can generate multiple funded reward rooms', () => {
   const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
@@ -363,6 +410,20 @@ ok('demo resource harvesting ignores mouse fire input', () => {
   raid.update(1 / 60, 800, 600);
   if (!raid.player.searching) throw new Error('mouse fire interrupted demo harvesting');
   G.Input.mouse.down = false;
+});
+ok('demo auto-search keeps auto-firing at nearby enemies', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.enemies = [];
+  const c = raid.map.containers.find(c => c.items.length);
+  raid.player.x = c.x; raid.player.y = c.y;
+  raid.map.los = () => true;
+  raid.enemies.push({ dead: false, x: c.x + 80, y: c.y, r: G.Config.ENEMY_RADIUS, room: null, update() {}, hearShot() {} });
+  G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
+  raid.update(1 / 60, 800, 600);
+  if (!raid.player.searching) throw new Error('auto-search did not start');
+  if (!raid.bullets.some(b => b.owner === 'player')) throw new Error('auto-search blocked demo auto-fire');
 });
 ok('demo combat auto-aims nearest enemy and shoots without ammo', () => {
   const carried = G.Profile.scavKit();
@@ -1279,14 +1340,29 @@ ok('armor upgrade with a full backpack does not lose the worn plate', () => {
   if (p.armor.id !== 'a_vest1') throw new Error('swapped armor with a full bag — the old plate would be lost');
   if (leftover !== 1) throw new Error('new plate should stay as leftover when the bag is full');
 });
-ok('backpack capacity uses 8x6 item occupancy grid', () => {
+ok('backpack capacity uses individual items in an 8x6 occupancy grid', () => {
   const raid = new G.Raid(G.Locations[0], G.Profile.scavKit());
   const p = raid.player;
   p.backpack = [];
   if (G.Config.BACKPACK_GRID_W !== 8 || G.Config.BACKPACK_GRID_H !== 6) throw new Error('bag grid is not 8x6');
-  if (p.addLoot('v_gpu', 36) !== 0) throw new Error('twelve 2x2 GPU stacks should fit exactly in an 8x6 bag');
+  if (p.addLoot('v_gpu', 12) !== 0) throw new Error('twelve individual 2x2 GPUs should fit exactly in an 8x6 bag');
   if (p.backpackCount() !== G.Config.BACKPACK_SLOTS) throw new Error('bag used slots mismatch');
   if (p.addLoot('v_cash', 1) !== 1) throw new Error('full bag accepted extra loot');
+});
+ok('backpack items do not stack, including legacy entries', () => {
+  const raid = new G.Raid(G.Locations[0], G.Profile.scavKit());
+  const p = raid.player;
+  p.backpack = [];
+  if (p.addLoot('v_cash', 3) !== 0) throw new Error('individual cash items should fit');
+  if (p.backpack.length !== 3 || p.backpack.some(s => s.n !== 1)) throw new Error('new backpack loot stacked');
+  p.backpack = [{ id: 'v_cash', n: 3 }];
+  p.ensureBackpackLayout();
+  if (p.backpack.length !== 3 || p.backpack.some(s => s.n !== 1)) throw new Error('legacy backpack stack was not expanded');
+  const carried = G.Profile.scavKit();
+  carried.backpack = [{ id: 'v_gpu', n: 13 }];
+  const overflowRaid = new G.Raid(G.Locations[0], carried);
+  if (overflowRaid.player.backpack.length !== 12 || overflowRaid.player.backpack.some(s => s.n !== 1)) throw new Error('legacy overflow bypassed the backpack grid');
+  if (!overflowRaid.groundItems.some(g => g.id === 'v_gpu' && g.n === 1)) throw new Error('legacy overflow was not dropped at spawn');
 });
 ok('equipArmor (key 3) equips the best plate from the backpack', () => {
   const raid = new G.Raid(G.Locations[0], { weapons: [{ id: 'w_pistol', mag: 8 }, null], armorId: null, reserve: {}, backpack: [] });
@@ -1308,16 +1384,24 @@ ok('healing permits movement but blocks shooting', () => {
   p.tryShoot(raid);
   if (p.lastShotAt !== shotBefore) throw new Error('player fired while healing (should be blocked)');
 });
-ok('tap-to-loot: opening fire interrupts an active search', () => {
+ok('search continues while firing and does not block bullets', () => {
   const raid = new G.Raid(G.Locations[0], G.Profile.scavKit());
   raid.player.reserve['9mm'] = 99;
   const c = raid.map.containers.find(c => c.items.length);
   raid.player.x = c.x; raid.player.y = c.y;
   raid.player.searching = { t: 0.2, total: G.Config.SEARCH_TIME, container: c };
+  raid.player.fireCd = 0;
+  const bulletsBefore = raid.bullets.length;
+  raid.player.tryShoot(raid);
+  if (!raid.player.searching) throw new Error('shooting directly canceled the search');
+  if (raid.bullets.length <= bulletsBefore) throw new Error('searching blocked bullet release');
   G.Input.keys.clear(); G.Input._pressed.clear();
+  raid.player.fireCd = 0;
+  const inputBulletsBefore = raid.bullets.length;
   G.Input.mouse.down = true; // fire
   raid.update(1 / 60, 800, 600);
-  if (raid.player.searching) throw new Error('shooting did not interrupt the search');
+  if (!raid.player.searching) throw new Error('fire input canceled the search');
+  if (raid.bullets.length <= inputBulletsBefore) throw new Error('fire input did not release a bullet while searching');
   G.Input.mouse.down = false;
 });
 ok('search interrupts when the container leaves range', () => {
@@ -1530,8 +1614,7 @@ function runPhase27Baseline() {
     if (!metrics || metrics.roomsEntered < mainIds.length || metrics.resourcesSearched < 1 || metrics.choicesTaken < 1) {
       throw new Error('scripted route did not collect baseline metrics');
     }
-    const expectedOutcome = scenario.duration >= G.DemoConfig.raidTimeLimit ? 'mia' : scenario.outcome;
-    if (result.outcome !== expectedOutcome) throw new Error('scripted route settled as ' + result.outcome + ', expected ' + expectedOutcome);
+    if (result.outcome !== scenario.outcome) throw new Error('scripted route settled as ' + result.outcome + ', expected ' + scenario.outcome);
     return {
       run: index + 1,
       input: 'scripted-route',

@@ -116,6 +116,9 @@
       });
       canvas.addEventListener('mousedown', (e) => {
         self.touchEnabled = false;
+        const r = canvas.getBoundingClientRect();
+        self.mouse.x = e.clientX - r.left;
+        self.mouse.y = e.clientY - r.top;
         if (e.button === 0) { self.mouse.down = true; self._mouseEdge = true; }
         if (e.button === 2) self.mouse.right = true;
       });

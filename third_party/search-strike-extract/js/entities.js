@@ -69,7 +69,7 @@
     aimAt(angle) { this.angle = angle; },
 
     tryShoot(raid) {
-      if (this.reloading || this.healing || this.searching) return;
+      if (this.reloading || this.healing) return;
       const w = this.weapon();
       if (!w) return;
       const def = G.getItem(w.id);
@@ -283,6 +283,16 @@
     },
     ensureBackpackLayout() {
       const cols = this.backpackCols(), rows = this.backpackRows();
+      // Backpack entries are always individual physical items. Split saves made
+      // before this rule so a legacy stack cannot bypass the grid capacity.
+      const normalized = [];
+      for (const entry of this.backpack) {
+        const amount = Math.max(1, Math.floor(entry.n || 1));
+        for (let i = 0; i < amount; i++) {
+          normalized.push(Object.assign({}, entry, { n: 1, x: i === 0 ? entry.x : null, y: i === 0 ? entry.y : null }));
+        }
+      }
+      this.backpack = normalized;
       for (let i = 0; i < this.backpack.length; i++) {
         const s = this.backpack[i];
         const sz = this.backpackGridSize(s.id);
@@ -295,6 +305,9 @@
         const spot = this.findBackpackSpot(s.id, i);
         if (spot) { s.x = spot.x; s.y = spot.y; }
       }
+      const overflow = this.backpack.filter(s => s.x == null || s.y == null);
+      if (overflow.length) this.backpack = this.backpack.filter(s => s.x != null && s.y != null);
+      return overflow;
     },
     backpackUsed() {
       this.ensureBackpackLayout();
@@ -312,22 +325,11 @@
       if (!def) return n;
       if (def.type === 'ammo') return this.addLoot(id, n);
       this.ensureBackpackLayout();
-      const max = def.stack || 1;
       let left = n;
-      if (max > 1) {
-        for (const s of this.backpack) {
-          if (s.id === id && s.n < max) {
-            const add = Math.min(max - s.n, left);
-            s.n += add; left -= add;
-            if (left <= 0) return 0;
-          }
-        }
-      }
       while (left > 0 && this.canPlaceBackpackItem(id, x, y)) {
-        const add = Math.min(max, left);
         const sz = this.backpackGridSize(id);
-        this.backpack.push({ id, n: add, x: Math.floor(x), y: Math.floor(y), w: sz.w, h: sz.h });
-        left -= add;
+        this.backpack.push({ id, n: 1, x: Math.floor(x), y: Math.floor(y), w: sz.w, h: sz.h });
+        left--;
         if (left > 0) {
           const spot = this.findBackpackSpot(id);
           if (!spot) break;
@@ -372,25 +374,13 @@
           }
         }
       }
-      const max = def.stack || 1;
       let left = n;
       this.ensureBackpackLayout();
-      if (max > 1) {
-        for (const s of this.backpack) {
-          if (s.id === id && s.n < max) {
-            const fitByStack = max - s.n;
-            const add = Math.min(fitByStack, left);
-            if (add > 0) { s.n += add; left -= add; }
-            if (left <= 0) return 0;
-          }
-        }
-      }
       while (left > 0) {
         const spot = this.findBackpackSpot(id);
         if (!spot) break;
-        const add = Math.min(max, left);
         const sz = this.backpackGridSize(id);
-        this.backpack.push({ id, n: add, x: spot.x, y: spot.y, w: sz.w, h: sz.h }); left -= add;
+        this.backpack.push({ id, n: 1, x: spot.x, y: spot.y, w: sz.w, h: sz.h }); left--;
       }
       return left; // leftover that didn't fit
     },

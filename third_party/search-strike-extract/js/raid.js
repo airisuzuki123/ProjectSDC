@@ -35,7 +35,6 @@
     this.coinFlights = [];
     this.time = 0;
     this.timeLeft = C.RAID_TIME;
-    if (this.demo && G.DemoConfig && G.DemoConfig.raidTimeLimit) this.timeLeft = G.DemoConfig.raidTimeLimit;
     this.kills = 0;
     this.killsByTier = { scav: 0, raider: 0, boss: 0 };   // fed to contract counters on extract
     this.paused = false;
@@ -80,6 +79,8 @@
     this.sprintOn = false;        // touch sprint toggle
     this._nearestCont = null;
     this._actionRowY = null;      // set by _layoutButtons on touch; read by panel/quickbar geometry
+    this._curseHudButtons = [];
+    this._curseTooltipId = null;
 
     // callbacks (wired by host)
     this.onPause = function () {};
@@ -102,7 +103,8 @@
       p.armor = carried.armorId ? { id: carried.armorId, durability: G.getItem(carried.armorId).durability } : null;
       p.reserve = Object.assign({}, carried.reserve);
       p.backpack = (carried.backpack || []).map(s => ({ id: s.id, n: s.n, x: s.x, y: s.y, w: s.w, h: s.h }));
-      p.ensureBackpackLayout();
+      const overflow = p.ensureBackpackLayout();
+      for (const item of overflow) this._dropGroundItem(sp.x, sp.y, item.id, item.n, { delay: 0.1, scatter: 24 });
       // top off the equipped magazine from reserve
       for (const w of p.weapons) {
         if (!w) continue;
@@ -180,12 +182,13 @@
       Input.screenW = w; Input.screenH = h;
       if (this.result) return;
       this._layoutButtons(w, h);
+      this._layoutDemoHud(w, h);
       Input.update();
       if (this.paused) return;
 
       dt = Math.min(dt, 0.05);
       this.time += dt;
-      this.timeLeft -= dt;
+      if (!this.demo) this.timeLeft -= dt;
       if (this.dungeon && this.dungeon.roomEntryGrace > 0) this.dungeon.roomEntryGrace = Math.max(0, this.dungeon.roomEntryGrace - dt);
       this._updateDungeonCurses();
       this._updateDungeonPressure(dt);
@@ -214,7 +217,7 @@
 
       // win / lose conditions
       if (this.player.dead) this._finish('death');
-      else if (this.timeLeft <= 0) this._finish('mia');
+      else if (!this.demo && this.timeLeft <= 0) this._finish('mia');
     },
 
     _handleInput(dt) {
@@ -222,6 +225,7 @@
       // discrete actions from keys + buttons
       Input.queueKeyActions(KEY_ACTIONS);
       if (this._handleDemoDebugActions()) return;
+      this._handleCurseHudInput();
       if (!Input.touchEnabled && Input.mousePressed() && this._desktopInvButton && pointInRect(Input.mouse.x, Input.mouse.y, this._desktopInvButton)) {
         this.paused = true; this.invOpen = true; Input.resetTouch(); this.onInventory(); return;
       }
@@ -288,10 +292,6 @@
         }
       }
 
-      // opening fire interrupts an active search ("开枪也中断"). The actual aim &
-      // shot are resolved in _aimAndFire, AFTER the camera settles this frame, so
-      // the bullet lines up with the on-screen crosshair.
-      if (!this.demo && Input.firing() && p.searching) { p.searching = null; this.toast(G.t('raid.toast.searchInterrupted')); }
     },
 
     _handleDemoDebugActions() {
@@ -394,7 +394,7 @@
         if (target) {
           p.aimAt(U.angle(p.x, p.y, target.x, target.y));
           const before = p.lastShotAt;
-          if (!p.searching) p.tryShoot(this);
+          p.tryShoot(this);
           if (p.lastShotAt !== before) this._alertEnemies(p.x, p.y);
         }
         return;
@@ -405,7 +405,7 @@
       else { const wpt = this.cam.screenToWorld(Input.mouse.x, Input.mouse.y); ang = U.angle(p.x, p.y, wpt.x, wpt.y); }
       p.aimAt(ang);
       const before = p.lastShotAt;
-      if (Input.firing() && !p.searching) p.tryShoot(this);
+      if (Input.firing()) p.tryShoot(this);
       if (p.lastShotAt !== before) this._alertEnemies(p.x, p.y);
     },
 
@@ -1296,8 +1296,40 @@
       this._invBottom = S.t + pad + bagH;
     },
 
+    _layoutDemoHud(w, h) {
+      this._curseHudButtons = [];
+      if (!this.demo || !this.dungeon) return;
+      const ids = this.dungeon.selectedCurses || [];
+      const S = G.safe;
+      const size = Input.touchEnabled ? 34 : 30;
+      const gap = 6;
+      const total = ids.length * size + Math.max(0, ids.length - 1) * gap;
+      const x = Math.round((w - total) / 2);
+      const y = 50 + S.t;
+      for (let i = 0; i < ids.length; i++) {
+        const rect = { id: ids[i], x: x + i * (size + gap), y, w: size, h: size };
+        this._curseHudButtons.push(rect);
+        if (Input.touchEnabled) Input.setButton('curseHud' + i, rect.x, rect.y, rect.w, rect.h);
+      }
+    },
+
+    _handleCurseHudInput() {
+      if (!this.demo || !this.dungeon || !this._curseHudButtons.length) return;
+      let hit = null;
+      if (Input.touchEnabled) {
+        for (let i = 0; i < this._curseHudButtons.length; i++) {
+          if (Input.consumeAction('curseHud' + i)) { hit = this._curseHudButtons[i]; break; }
+        }
+      } else if (Input.mousePressed()) {
+        hit = this._curseHudButtons.find(b => pointInRect(Input.mouse.x, Input.mouse.y, b));
+        if (!hit) this._curseTooltipId = null;
+      }
+      if (hit) this._curseTooltipId = this._curseTooltipId === hit.id ? null : hit.id;
+    },
+
     /* ----------------------------- Render ------------------------------ */
     draw(ctx, w, h) {
+      this._layoutDemoHud(w, h);
       ctx.fillStyle = '#0a0c0f';
       ctx.fillRect(0, 0, w, h);
       ctx.save();
@@ -1664,6 +1696,104 @@
       ctx.globalAlpha = 1;
     },
 
+    _demoMinimapGeom(w) {
+      const S = G.safe;
+      const size = Input.touchEnabled ? 104 : 150;
+      return {
+        size,
+        x: w - size - 14 - S.r,
+        y: Input.touchEnabled ? (this._invBottom || 60) + 12 : S.t + 14,
+      };
+    },
+
+    _drawDemoThreatHud(ctx, w) {
+      if (!this.demo || !this.dungeon) return;
+      const d = this.dungeon;
+      const cfg = G.DemoConfig || {};
+      const S = G.safe;
+      const maxLevel = cfg.monsterLevelMax || 6;
+      const interval = this._monsterLevelInterval();
+      const capped = d.monsterLevel >= maxLevel;
+      const progress = capped ? 1 : U.clamp(d.monsterLevelTimer / interval, 0, 1);
+      const bw = Math.min(300, Math.max(220, w * 0.32));
+      const bh = 8;
+      const x = Math.round((w - bw) / 2);
+      const y = 14 + S.t;
+      const accent = d.enraged ? '#ff6d5f' : '#c36a55';
+      const fill = d.enraged ? '#e45847' : '#d2a55a';
+      const remain = Math.max(0, Math.ceil(interval - d.monsterLevelTimer));
+
+      ctx.save();
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.font = 'bold 11px monospace'; ctx.fillStyle = accent;
+      ctx.fillText(G.t('raid.hud.monsterLevel', { n: d.monsterLevel }), x, y + 10);
+      ctx.textAlign = 'right'; ctx.font = '10px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.72)';
+      ctx.fillText(capped ? G.t('raid.hud.threatMax') : G.t('raid.hud.threatNext', { n: d.monsterLevel + 1, s: remain }), x + bw, y + 10);
+      ctx.fillStyle = 'rgba(0,0,0,0.58)'; ctx.fillRect(x, y + 16, bw, bh);
+      ctx.fillStyle = fill; ctx.fillRect(x, y + 16, bw * progress, bh);
+      ctx.strokeStyle = d.enraged ? '#ffb09e' : 'rgba(255,235,180,0.8)'; ctx.lineWidth = 1;
+      ctx.strokeRect(x, y + 16, bw, bh);
+      ctx.restore();
+    },
+
+    _drawCurseIcon(ctx, id, x, y, size, active) {
+      const palette = {
+        greedy_hand: '#d4b45a', blood_tax: '#c85a5a', heavy_march: '#8b98b0',
+        frenzy_guide: '#b46bdb', glass_edge: '#79c8d8', elite_gift: '#e0a958',
+      };
+      const col = palette[id] || '#d8d8d8';
+      const cx = x + size / 2, cy = y + size / 2;
+      ctx.save();
+      ctx.fillStyle = active ? 'rgba(38,32,24,0.96)' : 'rgba(12,14,18,0.82)';
+      ctx.fillRect(x, y, size, size);
+      ctx.strokeStyle = active ? '#fff0b0' : col; ctx.lineWidth = active ? 2 : 1.5;
+      ctx.strokeRect(x + 0.5, y + 0.5, size - 1, size - 1);
+      ctx.fillStyle = col; ctx.strokeStyle = col; ctx.lineWidth = 2;
+      if (id === 'greedy_hand') {
+        for (let i = -1; i <= 1; i++) ctx.fillRect(cx + i * 5 - 1.5, cy - 8, 3, 12);
+        ctx.fillRect(cx - 7, cy + 2, 14, 5);
+      } else if (id === 'blood_tax') {
+        ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.quadraticCurveTo(cx - 9, cy + 1, cx, cy + 9); ctx.quadraticCurveTo(cx + 9, cy + 1, cx, cy - 10); ctx.fill();
+      } else if (id === 'heavy_march') {
+        ctx.fillRect(cx - 7, cy - 5, 9, 10); ctx.fillRect(cx - 8, cy + 4, 16, 5);
+      } else if (id === 'frenzy_guide') {
+        for (let i = 0; i < 3; i++) { const yy = cy - 7 + i * 7; ctx.beginPath(); ctx.moveTo(cx - 9, yy); ctx.lineTo(cx - 2, yy - 3); ctx.lineTo(cx + 8, yy + 2); ctx.stroke(); }
+      } else if (id === 'glass_edge') {
+        ctx.beginPath(); ctx.moveTo(cx, cy - 10); ctx.lineTo(cx + 9, cy); ctx.lineTo(cx, cy + 10); ctx.lineTo(cx - 9, cy); ctx.closePath(); ctx.stroke();
+      } else if (id === 'elite_gift') {
+        ctx.beginPath(); ctx.moveTo(cx - 9, cy + 7); ctx.lineTo(cx - 8, cy - 6); ctx.lineTo(cx - 2, cy); ctx.lineTo(cx + 2, cy - 8); ctx.lineTo(cx + 8, cy - 6); ctx.lineTo(cx + 9, cy + 7); ctx.closePath(); ctx.fill();
+      }
+      ctx.restore();
+    },
+
+    _drawDemoCurses(ctx, w) {
+      if (!this.demo || !this.dungeon || !this._curseHudButtons.length) return;
+      const hover = !Input.touchEnabled && this._curseHudButtons.find(b => pointInRect(Input.mouse.x, Input.mouse.y, b));
+      const tooltipId = (hover && hover.id) || this._curseTooltipId;
+      for (const b of this._curseHudButtons) this._drawCurseIcon(ctx, b.id, b.x, b.y, b.w, b.id === tooltipId);
+      if (!tooltipId) return;
+      const curse = (G.DemoCurses || []).find(c => c.id === tooltipId);
+      const anchor = this._curseHudButtons.find(b => b.id === tooltipId);
+      if (!curse || !anchor) return;
+      const title = G.t('curse.' + tooltipId + '.name');
+      const desc = G.t('curse.' + tooltipId + '.desc');
+      const reward = G.t('ui.curse.reward', { pct: Math.round((curse.rewardBonus || 0) * 100) });
+      const bw = Math.min(330, w - 28);
+      const lines = wrapHudText(ctx, desc, bw - 22);
+      const bh = 42 + lines.length * 14;
+      const x = Math.round((w - bw) / 2);
+      const y = anchor.y + anchor.h + 8;
+      ctx.save();
+      ctx.fillStyle = 'rgba(8,10,14,0.94)'; ctx.fillRect(x, y, bw, bh);
+      ctx.strokeStyle = '#d4b45a'; ctx.lineWidth = 1; ctx.strokeRect(x, y, bw, bh);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#ffe1a8'; ctx.fillText(title, x + 11, y + 16);
+      ctx.font = '10px monospace'; ctx.fillStyle = '#d7dde4';
+      lines.forEach((line, i) => ctx.fillText(line, x + 11, y + 31 + i * 14));
+      ctx.fillStyle = '#8fe0a0'; ctx.fillText(reward, x + 11, y + bh - 9);
+      ctx.restore();
+    },
+
     /* ------------------------------ HUD -------------------------------- */
     _drawHUD(ctx, w, h) {
       const p = this.player;
@@ -1704,20 +1834,27 @@
       ctx.fillStyle = '#d8d24a'; ctx.fillRect(bx, by, bw * (p.stamina / C.STAMINA_MAX), 6);
       by += 14;
 
-      // ---- timer (top center) ----
-      const mm = Math.floor(Math.max(0, this.timeLeft) / 60), ss = Math.floor(Math.max(0, this.timeLeft) % 60);
-      const tstr = mm + ':' + (ss < 10 ? '0' : '') + ss;
-      ctx.textAlign = 'center'; ctx.font = 'bold 22px monospace';
-      ctx.fillStyle = this.timeLeft < 30 ? '#ff5a5a' : 'rgba(255,255,255,0.9)';
-      ctx.fillText(tstr, w / 2, 30 + S.t);
-      ctx.font = '10px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
-      ctx.fillText(G.I18n.locName(this.location).toUpperCase(), w / 2, 44 + S.t);
+      this._drawDemoThreatHud(ctx, w);
+      this._drawDemoCurses(ctx, w);
+
+      // Regular raids retain their deadline. Demo pacing is a settlement reference,
+      // so it neither forces an MIA result nor displays a countdown during play.
+      if (!this.demo) {
+        const mm = Math.floor(Math.max(0, this.timeLeft) / 60), ss = Math.floor(Math.max(0, this.timeLeft) % 60);
+        const tstr = mm + ':' + (ss < 10 ? '0' : '') + ss;
+        ctx.textAlign = 'center'; ctx.font = 'bold 22px monospace';
+        ctx.fillStyle = this.timeLeft < 30 ? '#ff5a5a' : 'rgba(255,255,255,0.9)';
+        ctx.fillText(tstr, w / 2, 30 + S.t);
+        ctx.font = '10px monospace'; ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillText(G.I18n.locName(this.location).toUpperCase(), w / 2, 44 + S.t);
+      }
 
       // ---- top right: kills / value (stacked below the BAG button on touch) ----
       ctx.textAlign = 'right'; ctx.font = 'bold 13px monospace';
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       const rightX = w - 14 - S.r;
-      const topY = Input.touchEnabled ? (this._invBottom || 60) + 16 : 18 + S.t;
+      const mini = this.demo ? this._demoMinimapGeom(w) : null;
+      const topY = this.demo ? mini.y + mini.size + 18 : (Input.touchEnabled ? (this._invBottom || 60) + 16 : 18 + S.t);
       ctx.fillText('☠ ' + this.kills, rightX, topY);
       ctx.fillStyle = '#f0c44a';
       ctx.fillText('₵ ' + U.formatNum(p.lootValue()), rightX, topY + 18);
@@ -1737,17 +1874,12 @@
         ctx.textAlign = 'right';
       }
       if (this.demo && this.dungeon) {
-        ctx.fillStyle = this._canNormalExtract() ? '#8fd6ff' : 'rgba(255,255,255,0.68)';
-        ctx.fillText(G.t('raid.hud.scrolls', this._scrollParams()), rightX, topY + 50);
-        ctx.fillStyle = this.dungeon.enraged ? '#ff7b5a' : 'rgba(255,255,255,0.68)';
-        ctx.fillText(G.t('raid.hud.monsterLevel', { n: this.dungeon.monsterLevel }), rightX, topY + 66);
+        ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#f0c44a';
+        ctx.fillText(G.t('raid.hud.gold', { n: this.dungeon.gold || 0 }), rightX, topY + 52);
+        ctx.font = '11px monospace'; ctx.fillStyle = this._canNormalExtract() ? '#8fd6ff' : 'rgba(255,255,255,0.68)';
+        ctx.fillText(G.t('raid.hud.scrolls', this._scrollParams()), rightX, topY + 68);
         ctx.fillStyle = '#f0c44a';
-        ctx.fillText(G.t('raid.hud.rewardMultiplier', { mul: this.dungeon.rewardMultiplier.toFixed(2) }), rightX, topY + 82);
-        ctx.fillText(G.t('raid.hud.gold', { n: this.dungeon.gold || 0 }), rightX, topY + 98);
-        if (this.dungeon.enraged) {
-          ctx.fillStyle = '#ff7b5a';
-          ctx.fillText(G.t('raid.hud.enraged'), rightX, topY + 114);
-        }
+        ctx.fillText(G.t('raid.hud.rewardMultiplier', { mul: this.dungeon.rewardMultiplier.toFixed(2) }), rightX, topY + 84);
       }
 
       // ---- weapon panel + carried-item quick bar (bottom center-left) ----
@@ -1988,9 +2120,10 @@
     _drawMinimap(ctx, w, h) {
       const map = this.map;
       const S = G.safe;
-      const size = Input.touchEnabled ? 104 : 150;
-      const mx = w - size - 14 - S.r;
-      const my = (Input.touchEnabled ? (this._invBottom || 60) + 56 : 64 + S.t);
+      const geom = this.demo ? this._demoMinimapGeom(w) : null;
+      const size = geom ? geom.size : (Input.touchEnabled ? 104 : 150);
+      const mx = geom ? geom.x : w - size - 14 - S.r;
+      const my = geom ? geom.y : (Input.touchEnabled ? (this._invBottom || 60) + 56 : 64 + S.t);
       const sc = size / Math.max(map.pxW, map.pxH);
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -2064,7 +2197,7 @@
       const bw = maxw + pad * 2;
       const bh = pad * 2 + 18 + lines.length * lh;
       const bx = w / 2 - bw / 2;
-      const by = G.safe.t + 54;
+      const by = G.safe.t + (this.demo ? 118 : 54);
       ctx.fillStyle = 'rgba(8,10,14,0.82)'; ctx.fillRect(bx, by, bw, bh);
       ctx.strokeStyle = 'rgba(255,225,140,0.35)'; ctx.lineWidth = 1.5; ctx.strokeRect(bx, by, bw, bh);
       ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
@@ -2146,6 +2279,18 @@
 
   function pointInRect(x, y, r) {
     return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  }
+
+  function wrapHudText(ctx, text, maxWidth) {
+    const lines = [];
+    let line = '';
+    for (const ch of String(text || '')) {
+      const next = line + ch;
+      if (line && ctx.measureText(next).width > maxWidth) { lines.push(line); line = ch; }
+      else line = next;
+    }
+    if (line) lines.push(line);
+    return lines.length ? lines : [''];
   }
 
   // tint a hex color by a small shade index (floor variation)
