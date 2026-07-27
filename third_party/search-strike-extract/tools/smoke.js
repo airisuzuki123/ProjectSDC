@@ -1659,6 +1659,102 @@ ok('phase 40 externally supplied demo gear cannot be copied by settlement', () =
   if (G.Profile.countItem('w_m4') !== 0 || G.Profile.countItem('ammo_545') !== 0) throw new Error('external carried gear was copied into stash');
   if (G.Profile.countItem('v_cash') !== 0) throw new Error('external valuable entered stash');
 });
+ok('phase 42 five-stage economy, progression and terminal failure loop', () => {
+  G.Profile.resetAll();
+  const ld = { primary: 'w_pistol', secondary: null, armor: null, medId: 'm_bandage', medCount: 1 };
+  const settleStage = (levelId, outcome, index) => {
+    const level = G.getDemoLevel(levelId);
+    if (!level) throw new Error('missing level: ' + levelId);
+    const carried = G.Profile.commitDemoRaidStart(ld);
+    if (carried.error) throw new Error(carried.error);
+    const player = {
+      weapons: carried.weapons.map(w => w ? { id: w.id, mag: w.mag } : null),
+      armor: null,
+      reserve: Object.assign({}, carried.reserve),
+      backpack: carried.backpack.concat([{ id: 'v_cash', n: outcome === 'perfect_extract' ? 4 : 1 }]),
+      kills: 0,
+    };
+    const result = {
+      settlementId: 'phase42-' + levelId + '-' + outcome + '-' + index,
+      outcome,
+      levelId,
+      levelOrder: level.order,
+      challengeId: level.challengePool[0],
+      time: 300 + index * 30,
+      rewardMultiplier: outcome === 'perfect_extract' ? 1.5 : 1,
+    };
+    return {
+      progress: G.Profile.recordDemoLevelResult(levelId, result),
+      settlement: G.Profile.recordDemoRelicSettlement(result, player, carried),
+    };
+  };
+
+  const normal = settleStage('level_1', 'normal_extract', 0);
+  if (!normal.progress.ok || normal.progress.highestUnlockedLevel !== 1 || G.Profile.canStartDemoLevel('level_2')) throw new Error('normal extract advanced level progress');
+  if (!normal.settlement.success || normal.settlement.currencyAwarded <= 0) throw new Error('normal extract did not settle economy');
+
+  for (let i = 1; i <= 5; i++) {
+    const levelId = 'level_' + i;
+    const res = settleStage(levelId, 'perfect_extract', i);
+    const expectedHighest = Math.min(i + 1, 5);
+    if (!res.progress.ok || res.progress.highestUnlockedLevel !== expectedHighest) throw new Error(levelId + ' did not advance sequential progress');
+    if (i < 5 && res.progress.unlockedLevelId !== 'level_' + (i + 1)) throw new Error(levelId + ' did not report next unlock');
+    if (i === 5 && (!res.progress.allLevelsComplete || res.progress.unlockedLevelId)) throw new Error('terminal level did not settle as final stage');
+    if (!res.settlement.success || res.settlement.currencyAwarded <= 0) throw new Error(levelId + ' perfect settlement did not pay relic currency');
+  }
+  if (!G.Profile.isShopItemUnlocked('w_m4')) throw new Error('final shop group did not unlock after five-stage clear');
+  const buy = G.Profile.buy('w_m4', 1);
+  if (!buy.ok || G.Profile.countItem('w_m4') < 1) throw new Error('unlocked abyss weapon could not be purchased');
+  const moneyBeforeFailure = G.Profile.money();
+  const m4BeforeFailure = G.Profile.countItem('w_m4');
+  const failCarried = G.Profile.commitDemoRaidStart({ primary: 'w_m4', secondary: null, armor: null, medId: null, medCount: 0 });
+  if (failCarried.error) throw new Error(failCarried.error);
+  const failPlayer = {
+    weapons: failCarried.weapons.map(w => w ? { id: w.id, mag: w.mag } : null),
+    armor: null,
+    reserve: Object.assign({}, failCarried.reserve),
+    backpack: [{ id: 'v_cash', n: 3 }],
+    kills: 0,
+  };
+  const failResult = { settlementId: 'phase42-level5-failed', outcome: 'failed', levelId: 'level_5', levelOrder: 5, challengeId: 'crossfire_current', time: 520, rewardMultiplier: 2 };
+  const failProgress = G.Profile.recordDemoLevelResult('level_5', failResult);
+  const failSettlement = G.Profile.recordDemoRelicSettlement(failResult, failPlayer, failCarried);
+  if (failProgress.highestUnlockedLevel !== 5) throw new Error('failure changed terminal progress');
+  if (failSettlement.currencyAwarded !== 0 || G.Profile.money() !== moneyBeforeFailure) throw new Error('failed terminal run paid currency');
+  if (G.Profile.countItem('w_m4') !== m4BeforeFailure - 1) throw new Error('failed terminal run returned brought weapon');
+});
+ok('phase 42 hub, loadout, shop and stash render across desktop and mobile viewports', () => {
+  const host = { startRaid() {}, startDemoRaid() {}, toHub() {}, };
+  const viewports = [
+    { w: 1280, h: 720, touch: false },
+    { w: 390, h: 844, touch: true },
+  ];
+  for (const vp of viewports) {
+    global.innerWidth = vp.w;
+    global.innerHeight = vp.h;
+    G.Input.touchEnabled = vp.touch;
+    G.safe = { t: vp.touch ? 12 : 0, r: 0, b: vp.touch ? 18 : 0, l: 0 };
+    G.UI.init(host);
+    G.Profile.resetAll();
+    for (let i = 1; i <= 4; i++) G.Profile.recordDemoLevelResult('level_' + i, { outcome: 'perfect_extract', time: 300 + i * 20 });
+    G.UI.showHub();
+    let text = collectDomText(G.UI.root);
+    if (collectByClass(G.UI.root, 'level-card').length !== 5) throw new Error('viewport hub lost level cards');
+    if (text.indexOf(G.t('ui.hub.menu.loadout.title')) < 0 || text.indexOf(G.t('ui.hub.menu.trader.title')) < 0 || text.indexOf(G.t('ui.hub.menu.stash.title')) < 0) throw new Error('viewport hub lost economy entries');
+    G.UI.showLoadout(G.getDemoLevel('level_5'));
+    text = collectDomText(G.UI.root);
+    if (text.indexOf(G.t('ui.loadout.header')) < 0 || text.indexOf(G.t('level.level_5.name')) < 0 || text.indexOf(G.t('ui.loadout.deploy')) < 0) throw new Error('viewport loadout did not render final stage');
+    G.UI.showTrader('buy', 'weapon');
+    text = collectDomText(G.UI.root);
+    if (text.indexOf(G.I18n.itemName('w_m4')) < 0 || text.indexOf(G.t('ui.trader.tab.buy')) < 0) throw new Error('viewport trader did not render unlocked weapons');
+    G.UI.showStash();
+    text = collectDomText(G.UI.root);
+    if (text.indexOf(G.t('ui.stash.header')) < 0 || text.indexOf(G.t('ui.stash.sellAtTrader')) < 0) throw new Error('viewport stash did not render');
+  }
+  G.Input.touchEnabled = false;
+  G.Input.resetTouch();
+  G.safe = { t: 0, r: 0, b: 0, l: 0 };
+});
 ok('phase 39 missing configured gear does not start a staged dive', () => {
   G.Profile.resetAll();
   G.Profile.data.money = 100;
@@ -2068,7 +2164,11 @@ function runScriptedBaseline(label, seed, scenarios, validateRecords) {
 
   function createRaid(scenario) {
     for (let attempt = 0; attempt < 100; attempt++) {
-      const carried = Object.assign(G.Profile.scavKit(), { demo: true, challengeId: scenario.challengeId || null });
+      const carried = Object.assign(G.Profile.scavKit(), {
+        demo: true,
+        levelId: scenario.levelId || null,
+        challengeId: scenario.challengeId || null,
+      });
       const raid = new G.Raid(loc, carried);
       const graph = raid.map.roomGraph;
       if (!graph || (scenario.orientation && graph.orientation !== scenario.orientation)) continue;
@@ -2175,7 +2275,7 @@ function runScriptedBaseline(label, seed, scenarios, validateRecords) {
       throw new Error('scripted route did not collect baseline metrics');
     }
     if (result.outcome !== scenario.outcome) throw new Error('scripted route settled as ' + result.outcome + ', expected ' + scenario.outcome);
-    return {
+    const record = {
       run: index + 1,
       input: 'scripted-route',
       challengeId: result.challengeId || null,
@@ -2185,6 +2285,12 @@ function runScriptedBaseline(label, seed, scenarios, validateRecords) {
       paceTag: result.paceTag,
       metrics,
     };
+    if (result.levelId) {
+      record.levelId = result.levelId;
+      record.levelOrder = result.levelOrder;
+      record.regularRoomCount = raid.map.roomGraph.regularRoomCount;
+    }
+    return record;
   });
   if (validateRecords) validateRecords(records);
   console.log(label + '=' + JSON.stringify(records));
@@ -2248,8 +2354,49 @@ function runPhase35Baseline() {
   }));
 }
 
+function runPhase42Baseline() {
+  const scenarios = [
+    { levelId: 'level_1', challengeId: 'elite_hunt', outcome: 'normal_extract', duration: 320, orientation: 'horizontal', reward: true },
+    { levelId: 'level_1', challengeId: 'scarce_escape', outcome: 'failed', duration: 300, reward: false },
+    { levelId: 'level_2', challengeId: 'undertow_breach', outcome: 'perfect_extract', duration: 390, orientation: 'vertical', reward: true },
+    { levelId: 'level_2', challengeId: 'charge_gauntlet', outcome: 'normal_extract', duration: 420, orientation: 'vertical', reward: false },
+    { levelId: 'level_3', challengeId: 'crossfire_current', outcome: 'failed', duration: 450, orientation: 'horizontal', reward: true },
+    { levelId: 'level_3', challengeId: 'sightline_siege', outcome: 'perfect_extract', duration: 480, orientation: 'horizontal', reward: true },
+    { levelId: 'level_4', challengeId: 'relic_surge', outcome: 'normal_extract', duration: 520, reward: true },
+    { levelId: 'level_4', challengeId: 'rising_tide', outcome: 'failed', duration: 500, orientation: 'vertical', reward: false },
+    { levelId: 'level_5', challengeId: 'crossfire_current', outcome: 'perfect_extract', duration: 560, orientation: 'horizontal', reward: true },
+    { levelId: 'level_5', challengeId: 'fortune_route', outcome: 'normal_extract', duration: 600, reward: true },
+  ];
+  const records = runScriptedBaseline('PHASE42_BASELINE', 42042, scenarios, records => {
+    validateBaselineCoverage(records);
+    const coveredLevels = new Set(records.map(r => r.levelId));
+    for (const level of G.DemoLevels || []) {
+      if (!coveredLevels.has(level.id)) throw new Error('phase 42 baseline missed level: ' + level.id);
+    }
+    for (const record of records) {
+      const level = G.getDemoLevel(record.levelId);
+      if (!level) throw new Error('phase 42 baseline recorded unknown level: ' + record.levelId);
+      if (record.levelOrder !== level.order) throw new Error('phase 42 level order mismatch: ' + record.levelId);
+      if (record.regularRoomCount !== level.regularRoomCount) throw new Error('phase 42 regular room budget mismatch: ' + record.levelId);
+      if (level.challengePool.indexOf(record.challengeId) < 0) throw new Error('phase 42 challenge outside level pool: ' + record.challengeId);
+    }
+  });
+  const outcomeCounts = records.reduce((counts, record) => {
+    counts[record.outcome] = (counts[record.outcome] || 0) + 1;
+    return counts;
+  }, {});
+  console.log('PHASE42_SUMMARY=' + JSON.stringify({
+    runs: records.length,
+    levelIds: Array.from(new Set(records.map(r => r.levelId))),
+    challengeIds: Array.from(new Set(records.map(r => r.challengeId))),
+    outcomeCounts,
+    averageTime: Math.round(records.reduce((sum, record) => sum + record.time, 0) / records.length),
+  }));
+}
+
 if (process.argv.includes('--phase27-baseline')) runPhase27Baseline();
 if (process.argv.includes('--phase35-baseline')) runPhase35Baseline();
+if (process.argv.includes('--phase42-baseline')) runPhase42Baseline();
 
 console.log('\n========================================');
 console.log(`  ${pass} passed, ${fail} failed`);
