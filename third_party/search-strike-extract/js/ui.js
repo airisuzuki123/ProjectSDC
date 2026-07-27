@@ -500,6 +500,19 @@
         [t('ui.results.eliminations'), result.kills],
         [t('ui.results.timeInRaid'), t('ui.results.timeValue', { m: Math.floor(result.time / 60), s: result.time % 60 })],
       ];
+      if (result.paceTag) {
+        lines.push([t('ui.results.pace'), t('ui.results.pace.' + result.paceTag, {
+          min: Math.round((result.targetRunMinTime || 300) / 60),
+          max: Math.round((result.targetRunMaxTime || 480) / 60),
+        })]);
+      }
+      if (result.playtestMetrics) {
+        const m = result.playtestMetrics;
+        lines.push([t('ui.results.playtest.route'), t('ui.results.playtest.routeValue', { rooms: m.roomsEntered || 0, reward: m.rewardRoomsEntered || 0 })]);
+        lines.push([t('ui.results.playtest.search'), t('ui.results.playtest.searchValue', { n: m.resourcesSearched || 0 })]);
+        lines.push([t('ui.results.playtest.gold'), t('ui.results.playtest.goldValue', { opened: m.paidPortalsOpened || 0, spent: m.goldSpent || 0, collected: m.goldCollected || 0 })]);
+        lines.push([t('ui.results.playtest.choices'), t('ui.results.playtest.choicesValue', { choices: m.choicesTaken || 0, curses: m.cursesTaken || 0, skills: m.skillsTaken || 0 })]);
+      }
       if (result.requiredFragments != null) {
         lines.push([t('ui.results.scrollFragments'), t('ui.results.scrollValue', { n: result.scrollFragments || 0, total: result.requiredFragments })]);
       }

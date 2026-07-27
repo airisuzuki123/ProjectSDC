@@ -702,6 +702,61 @@ ok('demo perfect extract succeeds after hold timer and applies bonus', () => {
   if (result.perfectRewardMultiplier !== G.DemoConfig.perfectExtractRewardMultiplier) throw new Error('perfect multiplier missing');
   if (result.lootValue !== Math.round(base * G.DemoConfig.perfectExtractRewardMultiplier)) throw new Error('perfect reward not applied');
 });
+ok('demo settlement reports run pace against the tuning window', () => {
+  const min = G.DemoConfig.targetRunMinTime;
+  const max = G.DemoConfig.targetRunMaxTime;
+  const finishAt = (seconds) => {
+    const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+    raid.time = seconds;
+    raid._finish('normal_extract');
+    return raid.result;
+  };
+  const short = finishAt(min - 1);
+  const target = finishAt(Math.round((min + max) / 2));
+  const long = finishAt(max + 1);
+  if (short.paceTag !== 'short') throw new Error('short run pace not reported');
+  if (target.paceTag !== 'target') throw new Error('target run pace not reported');
+  if (long.paceTag !== 'long') throw new Error('long run pace not reported');
+  if (target.targetRunMinTime !== min || target.targetRunMaxTime !== max) throw new Error('pace window missing from result');
+});
+ok('demo settlement includes playtest recap metrics', () => {
+  let raid = null, paidPortal = null;
+  for (let i = 0; i < 20 && !paidPortal; i++) {
+    raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+    paidPortal = raid.map.portals.find(p => p.kind === 'gold');
+  }
+  if (!raid || !paidPortal) throw new Error('no paid portal generated in attempts');
+
+  const cont = raid.map.containers.find(c => c.items && c.items.length);
+  if (!cont) throw new Error('no demo resource point');
+  raid._collect(cont);
+
+  raid._collectDungeonItem(G.DemoConfig.coinItemId, paidPortal.cost);
+  const room = raid.map.rooms.find(r => r.id === paidPortal.fromRoomId);
+  raid.player.x = paidPortal.x; raid.player.y = paidPortal.y;
+  raid.dungeon.currentRoomId = room.id;
+  raid._roomState(room.id).cleared = true;
+  for (let i = 0; i < 120; i++) {
+    raid.player.moving = false;
+    raid._updatePortals(0.2);
+    if (paidPortal.paid >= paidPortal.cost) break;
+  }
+
+  raid._openCurseChoice();
+  const choice = raid.dungeon.curseChoices[0];
+  if (!choice || !raid.chooseCurse(choice.id)) throw new Error('could not choose demo upgrade');
+
+  raid._finish('normal_extract');
+  const m = raid.result.playtestMetrics;
+  if (!m) throw new Error('missing playtest metrics');
+  if (m.resourcesSearched !== 1) throw new Error('resource search count missing');
+  if (m.goldCollected < paidPortal.cost) throw new Error('gold collected count missing');
+  if (m.goldSpent !== paidPortal.cost) throw new Error('gold spent count missing');
+  if (m.paidPortalsOpened !== 1) throw new Error('paid portal opened count missing');
+  if (m.roomsEntered < 1) throw new Error('room entry count missing');
+  if (m.choicesTaken !== 1) throw new Error('choice count missing');
+  if (m.cursesTaken + m.skillsTaken !== 1) throw new Error('choice type count missing');
+});
 ok('demo monster pressure levels up and enrages over time', () => {
   const carried = G.Profile.scavKit();
   carried.demo = true;
@@ -965,7 +1020,7 @@ ok('all UI screens & overlays render', () => {
   G.UI.showResults({ outcome: 'death', kills: 1, time: 40, lootValue: 300, items: 2, scav: true }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'normal_extract', kills: 2, time: 80, lootValue: 450, items: 3, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'normal_extract', kills: 2, time: 80, lootValue: 608, baseLootValue: 450, rewardMultiplier: 1.35, items: 3, baseItems: 3, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
-  G.UI.showResults({ outcome: 'perfect_extract', kills: 4, time: 220, lootValue: 900, baseLootValue: 600, rewardMultiplier: 1.5, perfectRewardMultiplier: 1.5, items: 4, baseItems: 4, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
+  G.UI.showResults({ outcome: 'perfect_extract', kills: 4, time: 360, lootValue: 900, baseLootValue: 600, rewardMultiplier: 1.5, perfectRewardMultiplier: 1.5, items: 4, baseItems: 4, scav: true, scrollFragments: 4, requiredFragments: 4, paceTag: 'target', targetRunMinTime: 300, targetRunMaxTime: 480, playtestMetrics: { roomsEntered: 5, rewardRoomsEntered: 1, resourcesSearched: 4, paidPortalsOpened: 1, goldSpent: 3, goldCollected: 5, choicesTaken: 2, cursesTaken: 1, skillsTaken: 1 } }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'failed', kills: 2, time: 80, lootValue: 0, lostLootValue: 450, items: 0, scav: true, scrollFragments: 2, requiredFragments: 4 }, { carriedValue: 0 });
   const fakeRaid = new G.Raid(G.Locations[0], G.Profile.scavKit());
   G.UI.openPause(fakeRaid);

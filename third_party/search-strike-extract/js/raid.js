@@ -62,6 +62,17 @@
       gold: 0,
       portalPayment: null,
       portalCooldown: 0,
+      playtest: {
+        resourcesSearched: 0,
+        goldCollected: 0,
+        goldSpent: 0,
+        paidPortalsOpened: 0,
+        roomsEntered: 0,
+        rewardRoomsEntered: 0,
+        choicesTaken: 0,
+        cursesTaken: 0,
+        skillsTaken: 0,
+      },
     } : null;
     this.visited = new Uint8Array(this.map.w * this.map.h);
     this._footT = 0;
@@ -431,6 +442,7 @@
         cont.items.splice(i, 1);
       }
       cont.searched = true;
+      if (this.demo && this.dungeon && this.dungeon.playtest) this.dungeon.playtest.resourcesSearched++;
       if (taken.length) {
         G.Audio.play('pickup', { vol: 0.7 });
         const names = taken.map(t => G.I18n.itemName(t.id) + (t.n > 1 ? ' ' + G.t('ui.item.qty', { n: t.n }) : '')).join(', ');
@@ -527,6 +539,7 @@
       if (id === (cfg.coinItemId || 'd_gold_coin')) {
         const got = Math.max(0, n);
         this.dungeon.gold += got;
+        if (this.dungeon.playtest) this.dungeon.playtest.goldCollected += got;
         if (got > 0) this.toast(G.t('raid.toast.goldPicked', { n: got, total: this.dungeon.gold }));
         return { got, leftover: 0 };
       }
@@ -597,6 +610,11 @@
       if (!pick) return false;
       if (pick.type === 'skill') this.dungeon.selectedSkills.push(pick.id);
       else this.dungeon.selectedCurses.push(pick.id);
+      if (this.dungeon.playtest) {
+        this.dungeon.playtest.choicesTaken++;
+        if (pick.type === 'skill') this.dungeon.playtest.skillsTaken++;
+        else this.dungeon.playtest.cursesTaken++;
+      }
       this.dungeon.rewardMultiplier = round2(this.dungeon.rewardMultiplier * (1 + (pick.rewardBonus || 0)));
       this.dungeon.curseTriggers++;
       this.dungeon.curseChoices = [];
@@ -824,6 +842,10 @@
       const st = this._roomState(room.id);
       if (!st.started) {
         st.started = true;
+        if (d.playtest) {
+          d.playtest.roomsEntered++;
+          if (room.kind === 'reward') d.playtest.rewardRoomsEntered++;
+        }
         if (st.wavesRemaining > 0) this._startRoomWarning(room.id, 'wave');
         else st.cleared = true;
       }
@@ -1014,11 +1036,18 @@
       while (d.portalPayment.t >= interval && portal.paid < portal.cost && d.gold > 0) {
         d.portalPayment.t -= interval;
         d.gold--;
+        if (d.playtest) d.playtest.goldSpent++;
         portal.paid++;
         this.spawnCoinFlight(this.player.x, this.player.y - 10, portal.x, portal.y - 6);
         this.floatText(portal.x, portal.y - 18, portal.paid + '/' + portal.cost, '#f0c44a');
       }
-      if (portal.paid >= portal.cost) this.toast(G.t('raid.toast.goldPortalOpen'));
+      if (portal.paid >= portal.cost) {
+        if (d.playtest && !portal.playtestOpened) {
+          d.playtest.paidPortalsOpened++;
+          portal.playtestOpened = true;
+        }
+        this.toast(G.t('raid.toast.goldPortalOpen'));
+      }
     },
 
     _roomAt(x, y) {
@@ -1090,6 +1119,36 @@
       if (!this.demo) return 1;
       const cfg = G.DemoConfig || {};
       return cfg.perfectExtractRewardMultiplier || 1;
+    },
+    _demoPaceCheck(seconds) {
+      if (!this.demo) return null;
+      const cfg = G.DemoConfig || {};
+      const min = cfg.targetRunMinTime || 300;
+      const max = cfg.targetRunMaxTime || 480;
+      const time = Math.max(0, Math.round(seconds || 0));
+      const tag = time < min ? 'short' : time > max ? 'long' : 'target';
+      return { paceTag: tag, targetRunMinTime: min, targetRunMaxTime: max };
+    },
+    _demoClock(seconds) {
+      const t = Math.max(0, Math.round(seconds || 0));
+      const m = Math.floor(t / 60);
+      const s = t % 60;
+      return m + ':' + (s < 10 ? '0' : '') + s;
+    },
+    _demoPlaytestMetrics() {
+      if (!this.demo || !this.dungeon || !this.dungeon.playtest) return null;
+      const p = this.dungeon.playtest;
+      return {
+        resourcesSearched: p.resourcesSearched || 0,
+        goldCollected: p.goldCollected || 0,
+        goldSpent: p.goldSpent || 0,
+        paidPortalsOpened: p.paidPortalsOpened || 0,
+        roomsEntered: p.roomsEntered || 0,
+        rewardRoomsEntered: p.rewardRoomsEntered || 0,
+        choicesTaken: p.choicesTaken || 0,
+        cursesTaken: p.cursesTaken || 0,
+        skillsTaken: p.skillsTaken || 0,
+      };
     },
 
     _reveal() {
@@ -1173,6 +1232,8 @@
       const perfectRewardMultiplier = outcome === 'perfect_extract' ? this._perfectExtractRewardMultiplier() : 1;
       const rewardMultiplier = round2(curseRewardMultiplier * perfectRewardMultiplier);
       const finalLootValue = Math.round(baseLootValue * rewardMultiplier);
+      const pace = this._demoPaceCheck(Math.round(this.time));
+      const playtestMetrics = this._demoPlaytestMetrics();
       this.result = {
         outcome, kills: this.kills,
         lootValue: failed ? 0 : finalLootValue,
@@ -1189,6 +1250,8 @@
         scrollFragments: this.dungeon ? this.dungeon.scrollFragments : undefined,
         requiredFragments: this.dungeon ? this.dungeon.requiredFragments : undefined,
       };
+      if (pace) Object.assign(this.result, pace);
+      if (playtestMetrics) this.result.playtestMetrics = playtestMetrics;
       this.onFinish(this.result);
     },
     abandon() { this._finish('abandoned'); },
@@ -1796,8 +1859,13 @@
     _drawDemoDebugPanel(ctx, w, h) {
       const S = G.safe;
       const x = 14 + S.l;
-      const y = h - 92 - S.b;
-      const bw = Math.min(370, w - 28 - S.l - S.r), bh = 78;
+      // Keep the diagnostic overlay above the bottom-left quick-slot and weapon HUD.
+      const y = Math.max(14 + S.t, h - 216 - S.b);
+      const bw = Math.min(390, w - 28 - S.l - S.r), bh = 96;
+      const cfg = G.DemoConfig || {};
+      const minM = Math.round((cfg.targetRunMinTime || 300) / 60);
+      const maxM = Math.round((cfg.targetRunMaxTime || 480) / 60);
+      const pace = this._demoPaceCheck(this.time);
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.68)';
       ctx.fillRect(x, y, bw, bh);
@@ -1813,6 +1881,8 @@
       ctx.fillText(G.t('raid.debug.line1'), x + 10, y + 36);
       ctx.fillText(G.t('raid.debug.line2'), x + 10, y + 52);
       ctx.fillText(G.t('raid.debug.line3'), x + 10, y + 68);
+      ctx.fillStyle = pace && pace.paceTag === 'target' ? '#9affb0' : '#ffe08a';
+      ctx.fillText(G.t('raid.debug.pace', { time: this._demoClock(this.time), min: minM, max: maxM }), x + 10, y + 86);
       ctx.restore();
     },
 
