@@ -1390,6 +1390,156 @@ ok('legacy save with no contracts/prog is repaired, not crashed', () => {
   if (G.Profile.contractProgress() == null) throw new Error('progress unreadable on legacy save');
 });
 
+function runPhase27Baseline() {
+  const originalRandom = Math.random;
+  Math.random = G.RNG(27027);
+  const scenarios = [
+    { outcome: 'failed', duration: 210, orientation: 'horizontal', reward: false },
+    { outcome: 'normal_extract', duration: 260, orientation: 'vertical', reward: true },
+    { outcome: 'normal_extract', duration: 300, orientation: 'horizontal', reward: false },
+    { outcome: 'perfect_extract', duration: 330, orientation: 'vertical', reward: true },
+    { outcome: 'normal_extract', duration: 360, orientation: 'horizontal', reward: true },
+    { outcome: 'failed', duration: 400, orientation: 'vertical', reward: false },
+    { outcome: 'perfect_extract', duration: 450, orientation: 'horizontal', reward: true },
+    { outcome: 'normal_extract', duration: 480, orientation: 'vertical', reward: false },
+    { outcome: 'failed', duration: 500, orientation: 'horizontal', reward: true },
+    { outcome: 'normal_extract', duration: 540, orientation: 'vertical', reward: false },
+  ];
+  const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
+
+  function createRaid(scenario) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const carried = Object.assign(G.Profile.scavKit(), { demo: true });
+      const raid = new G.Raid(loc, carried);
+      const graph = raid.map.roomGraph;
+      if (!graph || graph.orientation !== scenario.orientation) continue;
+      if (scenario.reward && !graph.rewardRoomIds.length) continue;
+      return raid;
+    }
+    throw new Error('could not generate requested baseline scenario');
+  }
+
+  function clearRoom(raid, room) {
+    const st = raid._roomState(room.id);
+    st.started = true;
+    st.cleared = true;
+    st.wavesRemaining = 0;
+    st.activeWave = false;
+    st.waveWarning = null;
+    for (const enemy of raid.enemies) if (enemy.room && enemy.room.id === room.id) enemy.dead = true;
+  }
+
+  function collectRoom(raid, room) {
+    for (const cont of raid.map.containers) {
+      if (cont.roomId !== room.id || cont.searched || !cont.items.length) continue;
+      raid.player.x = cont.x;
+      raid.player.y = cont.y;
+      raid._collect(cont);
+    }
+  }
+
+  function usePortal(raid, portal) {
+    raid.player.x = portal.x;
+    raid.player.y = portal.y;
+    const room = raid.map.rooms.find(r => r.id === portal.fromRoomId);
+    raid.dungeon.currentRoomId = room.id;
+    clearRoom(raid, room);
+    for (let i = 0; i < 120; i++) {
+      raid.player.moving = false;
+      raid._updatePortals(0.2);
+      if (raid._roomAt(raid.player.x, raid.player.y).id === portal.toRoomId) return;
+    }
+    throw new Error('scripted route could not traverse portal');
+  }
+
+  function advance(raid, seconds) {
+    const target = raid.time + seconds;
+    G.Input.keys.clear();
+    G.Input._pressed.clear();
+    G.Input.mouse.down = false;
+    while (raid.time < target && !raid.result) {
+      for (const enemy of raid.enemies) enemy.dead = true;
+      if (raid.dungeon.cursePending) {
+        const choice = raid.dungeon.curseChoices.find(c => c.type === raid._phase27ChoiceType) || raid.dungeon.curseChoices[0];
+        if (!choice || !raid.chooseCurse(choice.id)) throw new Error('scripted route could not resolve choice');
+      }
+      raid.update(0.1, 1280, 720);
+    }
+    return !raid.result;
+  }
+
+  const records = scenarios.map((scenario, index) => {
+    const raid = createRaid(scenario);
+    raid._phase27ChoiceType = index % 2 ? 'skill' : 'curse';
+    const mainIds = raid.map.roomGraph.mainRoomIds;
+    for (let i = 0; i < mainIds.length; i++) {
+      const room = raid.map.rooms.find(r => r.id === mainIds[i]);
+      raid.player.x = raid.map.tileCenter(room.cx, room.cy).x;
+      raid.player.y = raid.map.tileCenter(room.cx, room.cy).y;
+      raid._enterRoom(room);
+      collectRoom(raid, room);
+      clearRoom(raid, room);
+
+      if (scenario.reward && i === 1) {
+        const rewardPortal = raid.map.portals.find(p => p.fromRoomId === room.id && p.kind === 'gold');
+        if (rewardPortal && raid.dungeon.gold >= rewardPortal.cost) {
+          usePortal(raid, rewardPortal);
+          const rewardRoom = raid.map.rooms.find(r => r.id === rewardPortal.toRoomId);
+          collectRoom(raid, rewardRoom);
+          clearRoom(raid, rewardRoom);
+          const returnPortal = raid.map.portals.find(p => p.fromRoomId === rewardRoom.id && p.toRoomId === room.id);
+          if (returnPortal) usePortal(raid, returnPortal);
+        }
+      }
+
+      if (i < mainIds.length - 1) {
+        const portal = raid.map.portals.find(p => p.fromRoomId === room.id && p.toRoomId === mainIds[i + 1]);
+        if (!portal) throw new Error('scripted route missing main portal');
+        usePortal(raid, portal);
+      }
+    }
+
+    raid._openCurseChoice();
+    const choice = raid.dungeon.curseChoices.find(c => c.type === raid._phase27ChoiceType) || raid.dungeon.curseChoices[0];
+    if (!choice || !raid.chooseCurse(choice.id)) throw new Error('scripted route could not make build choice');
+    const safeRoom = raid.map.rooms.find(room => room.kind === 'spawn');
+    const safePoint = raid.map.tileCenter(safeRoom.cx, safeRoom.cy);
+    raid.player.x = safePoint.x;
+    raid.player.y = safePoint.y;
+    raid.dungeon.currentRoomId = safeRoom.id;
+    clearRoom(raid, safeRoom);
+    advance(raid, Math.max(0, scenario.duration - raid.time));
+    if (!raid.result) raid._finish(scenario.outcome);
+    const result = raid.result;
+    const metrics = result.playtestMetrics;
+    if (!metrics || metrics.roomsEntered < mainIds.length || metrics.resourcesSearched < 1 || metrics.choicesTaken < 1) {
+      throw new Error('scripted route did not collect baseline metrics');
+    }
+    const expectedOutcome = scenario.duration >= G.Config.RAID_TIME ? 'mia' : scenario.outcome;
+    if (result.outcome !== expectedOutcome) throw new Error('scripted route settled as ' + result.outcome + ', expected ' + expectedOutcome);
+    return {
+      run: index + 1,
+      input: 'scripted-route',
+      orientation: raid.map.roomGraph.orientation,
+      outcome: result.outcome,
+      time: result.time,
+      paceTag: result.paceTag,
+      metrics,
+    };
+  });
+  if (!records.some(r => r.outcome === 'failed') || !records.some(r => r.outcome === 'normal_extract') || !records.some(r => r.outcome === 'perfect_extract')) {
+    throw new Error('scripted baseline did not cover all target settlement paths');
+  }
+  if (new Set(records.map(r => r.orientation)).size !== 2) throw new Error('scripted baseline did not cover both map orientations');
+  if (!records.some(r => r.metrics.paidPortalsOpened > 0) || !records.some(r => r.metrics.cursesTaken > 0) || !records.some(r => r.metrics.skillsTaken > 0)) {
+    throw new Error('scripted baseline did not cover gold and build branches');
+  }
+  console.log('PHASE27_BASELINE=' + JSON.stringify(records));
+  Math.random = originalRandom;
+}
+
+if (process.argv.includes('--phase27-baseline')) runPhase27Baseline();
+
 console.log('\n========================================');
 console.log(`  ${pass} passed, ${fail} failed`);
 console.log('========================================');
