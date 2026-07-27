@@ -670,6 +670,7 @@
         const source = entry.pool.find(x => x.id === entry.id);
         return source && source.effects;
       });
+      if (d.level && d.level.modifiers) effectSets.push(d.level.modifiers);
       if (d.challenge && d.challenge.modifiers) effectSets.push(d.challenge.modifiers);
       for (const e of effectSets) {
         if (!e) continue;
@@ -767,7 +768,8 @@
       const cfg = G.DemoConfig || {};
       const levelBonus = Math.max(0, this.dungeon.monsterLevel - 1) * (cfg.monsterHpPerLevel || 0);
       const enrageBonus = this.dungeon.enraged ? (cfg.enrageHpBonus || 0) : 0;
-      return 1 + levelBonus + enrageBonus;
+      const difficulty = (this.dungeon.level && this.dungeon.level.difficultyMultiplier) || 1;
+      return (1 + levelBonus + enrageBonus) * difficulty;
     },
 
     _monsterDamageMultiplier() {
@@ -775,7 +777,8 @@
       const cfg = G.DemoConfig || {};
       const levelBonus = Math.max(0, this.dungeon.monsterLevel - 1) * (cfg.monsterDamagePerLevel || 0);
       const enrageBonus = this.dungeon.enraged ? (cfg.enrageDamageBonus || 0) : 0;
-      return 1 + levelBonus + enrageBonus;
+      const difficulty = (this.dungeon.level && this.dungeon.level.difficultyMultiplier) || 1;
+      return (1 + levelBonus + enrageBonus) * difficulty;
     },
 
     _monsterSpawnInterval() {

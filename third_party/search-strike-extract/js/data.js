@@ -151,6 +151,21 @@
       mapRules: { layout: 'chain', mainPathMin: 5, mainPathMax: 5, rewardChance: 1, rewardMax: 2 },
       modifiers: { highValueDropMultiplier: 1.35, monsterSpawnIntervalMultiplier: 0.88 },
     },
+    {
+      id: 'undertow_breach', w: 1, recommendedMin: 5, recommendedMax: 8,
+      mapRules: { layout: 'chain', orientation: 'vertical', mainPathMin: 5, mainPathMax: 5, rewardChance: 0.5, rewardMax: 1 },
+      modifiers: { scrollDropMultiplier: 1.15, monsterSpawnIntervalMultiplier: 0.82 },
+    },
+    {
+      id: 'crossfire_current', w: 1, recommendedMin: 5, recommendedMax: 8,
+      mapRules: { layout: 'chain', orientation: 'horizontal', mainPathMin: 6, mainPathMax: 6, rewardChance: 0.5, rewardMax: 1 },
+      modifiers: { roleMarksmanChanceMultiplier: 1.7, roleRusherChanceMultiplier: 1.35, eliteSpawnChanceMultiplier: 1.2 },
+    },
+    {
+      id: 'relic_surge', w: 1, recommendedMin: 6, recommendedMax: 8,
+      mapRules: { layout: 'chain', mainPathMin: 6, mainPathMax: 6, rewardChance: 1, rewardMax: 2 },
+      modifiers: { highValueDropMultiplier: 1.6, eliteDropMultiplier: 1.2, monsterLevelIntervalDelta: -8 },
+    },
   ];
   G.getChallenge = function (id) { return (G.Challenges || []).find(c => c.id === id) || null; };
 
@@ -158,27 +173,32 @@
     {
       id: 'level_1', order: 1, regularRoomCount: 4, difficultyMultiplier: 1.00,
       shopUnlockGroup: 'starter',
+      modifiers: { highValueDropMultiplier: 0.9, eliteSpawnChanceMultiplier: 0.85 },
       challengePool: ['elite_hunt', 'scarce_escape', 'fortune_route'],
     },
     {
       id: 'level_2', order: 2, regularRoomCount: 5, difficultyMultiplier: 1.08,
       shopUnlockGroup: 'field',
-      challengePool: ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet'],
+      modifiers: { highValueDropMultiplier: 1.05, eliteSpawnChanceMultiplier: 1.05 },
+      challengePool: ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'undertow_breach'],
     },
     {
       id: 'level_3', order: 3, regularRoomCount: 6, difficultyMultiplier: 1.16,
       shopUnlockGroup: 'breach',
-      challengePool: ['rising_tide', 'charge_gauntlet', 'sightline_siege', 'fortune_route'],
+      modifiers: { monsterSpawnIntervalMultiplier: 0.96, highValueDropMultiplier: 1.12, eliteSpawnChanceMultiplier: 1.10 },
+      challengePool: ['rising_tide', 'charge_gauntlet', 'sightline_siege', 'fortune_route', 'undertow_breach', 'crossfire_current'],
     },
     {
       id: 'level_4', order: 4, regularRoomCount: 7, difficultyMultiplier: 1.25,
       shopUnlockGroup: 'deep',
-      challengePool: ['rising_tide', 'elite_hunt', 'charge_gauntlet', 'sightline_siege', 'fortune_route'],
+      modifiers: { monsterLevelIntervalDelta: -5, monsterSpawnIntervalMultiplier: 0.93, highValueDropMultiplier: 1.18, eliteSpawnChanceMultiplier: 1.20 },
+      challengePool: ['rising_tide', 'elite_hunt', 'charge_gauntlet', 'sightline_siege', 'fortune_route', 'crossfire_current', 'relic_surge'],
     },
     {
       id: 'level_5', order: 5, regularRoomCount: 8, difficultyMultiplier: 1.35,
       shopUnlockGroup: 'abyss',
-      challengePool: ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'sightline_siege', 'fortune_route'],
+      modifiers: { monsterLevelIntervalDelta: -8, monsterSpawnIntervalMultiplier: 0.90, highValueDropMultiplier: 1.25, eliteSpawnChanceMultiplier: 1.35, eliteDropMultiplier: 1.10 },
+      challengePool: ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'sightline_siege', 'fortune_route', 'undertow_breach', 'crossfire_current', 'relic_surge'],
     },
   ];
   G.getDemoLevel = function (idOrOrder) {

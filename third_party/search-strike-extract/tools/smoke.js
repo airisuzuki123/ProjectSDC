@@ -164,7 +164,7 @@ ok('demo pace reference does not force MIA, while regular raids retain their tim
   if (!regular.result || regular.result.outcome !== 'mia') throw new Error('regular raid timer no longer settles as MIA');
 });
 ok('challenge pool applies map rules, modifiers and settlement identity', () => {
-  const expected = ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'sightline_siege', 'fortune_route'];
+  const expected = ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'sightline_siege', 'fortune_route', 'undertow_breach', 'crossfire_current', 'relic_surge'];
   if (!G.Challenges || G.Challenges.length !== expected.length) throw new Error('challenge registry is incomplete');
   if (!G.DemoRandomPools || G.DemoRandomPools.challenges !== G.Challenges || G.DemoRandomPools.lootDrops !== G.DemoLootDrops || G.DemoRandomPools.curses !== G.DemoCurses || G.DemoRandomPools.skills !== G.DemoSkills) throw new Error('random pools are not registered');
   for (let i = 0; i < 20; i++) {
@@ -191,6 +191,9 @@ ok('challenge pool applies map rules, modifiers and settlement identity', () => 
     if (id === 'charge_gauntlet' && raid._curseModifier('roleRusherChanceMultiplier', 1) !== 2) throw new Error('charge gauntlet modifier missing');
     if (id === 'sightline_siege' && raid._curseModifier('roleMarksmanChanceMultiplier', 1) !== 2) throw new Error('sightline siege modifier missing');
     if (id === 'fortune_route' && raid._curseModifier('highValueDropMultiplier', 1) !== 1.35) throw new Error('fortune route modifier missing');
+    if (id === 'undertow_breach' && (raid._curseModifier('scrollDropMultiplier', 1) !== 1.15 || raid._curseModifier('monsterSpawnIntervalMultiplier', 1) !== 0.82)) throw new Error('undertow breach modifier missing');
+    if (id === 'crossfire_current' && (raid._curseModifier('roleMarksmanChanceMultiplier', 1) !== 1.7 || raid._curseModifier('roleRusherChanceMultiplier', 1) !== 1.35 || raid._curseModifier('eliteSpawnChanceMultiplier', 1) !== 1.2)) throw new Error('crossfire current modifier missing');
+    if (id === 'relic_surge' && (raid._curseModifier('highValueDropMultiplier', 1) !== 1.6 || raid._curseModifier('eliteDropMultiplier', 1) !== 1.2 || raid._monsterLevelInterval() !== G.DemoConfig.monsterLevelInterval - 8)) throw new Error('relic surge modifier missing');
     raid._finish('normal_extract');
     if (!raid.result || raid.result.challengeId !== id) throw new Error('challenge identity missing from settlement: ' + id);
   }
@@ -229,6 +232,40 @@ ok('phase 36 level room budgets count only regular challenge rooms', () => {
       if (!reward || reward.kind !== 'reward' || reward.main !== false) throw new Error('reward room is not separate from regular budget');
     }
   }
+});
+ok('phase 41 expands five level challenge pools and pacing modifiers', () => {
+  const close = (a, b) => Math.abs(a - b) < 1e-9;
+  const expectedPools = {
+    level_1: ['elite_hunt', 'scarce_escape', 'fortune_route'],
+    level_2: ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'undertow_breach'],
+    level_3: ['rising_tide', 'charge_gauntlet', 'sightline_siege', 'fortune_route', 'undertow_breach', 'crossfire_current'],
+    level_4: ['rising_tide', 'elite_hunt', 'charge_gauntlet', 'sightline_siege', 'fortune_route', 'crossfire_current', 'relic_surge'],
+    level_5: ['rising_tide', 'elite_hunt', 'scarce_escape', 'charge_gauntlet', 'sightline_siege', 'fortune_route', 'undertow_breach', 'crossfire_current', 'relic_surge'],
+  };
+  const allChallenges = (G.Challenges || []).map(c => c.id).sort().join(',');
+  if (allChallenges !== expectedPools.level_5.slice().sort().join(',')) throw new Error('level 5 does not cover all phase 41 challenges');
+  const counts = (G.DemoLevels || []).map(l => l.challengePool.length).join(',');
+  if (counts !== '3,5,6,7,9') throw new Error('phase 41 pool size progression mismatch: ' + counts);
+  for (const level of G.DemoLevels || []) {
+    const expected = expectedPools[level.id];
+    if (!expected) throw new Error('unexpected level in phase 41 pools: ' + level.id);
+    if (level.challengePool.join(',') !== expected.join(',')) throw new Error('phase 41 pool mismatch: ' + level.id);
+    for (let i = 0; i < 20; i++) {
+      const picked = G.pickChallengeForLevel(level);
+      if (!picked || expected.indexOf(picked.id) < 0) throw new Error('phase 41 picked outside level pool: ' + level.id);
+    }
+  }
+  const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
+  const level1 = new G.Raid(loc, Object.assign(G.Profile.scavKit(), { demo: true, levelId: 'level_1', challengeId: 'scarce_escape' }));
+  if (!close(level1._curseModifier('highValueDropMultiplier', 1), 0.9)) throw new Error('level 1 high-value modifier missing');
+  if (!close(level1._curseModifier('eliteSpawnChanceMultiplier', 1), 0.85)) throw new Error('level 1 elite modifier missing');
+  if (!close(level1._curseModifier('scrollDropMultiplier', 1), 0.72)) throw new Error('challenge modifier no longer combines with level modifier');
+  const level5 = new G.Raid(loc, Object.assign(G.Profile.scavKit(), { demo: true, levelId: 'level_5', challengeId: 'relic_surge' }));
+  if (!close(level5._curseModifier('highValueDropMultiplier', 1), 2)) throw new Error('level 5 high-value modifier missing');
+  if (!close(level5._curseModifier('eliteDropMultiplier', 1), 1.32)) throw new Error('level 5 elite drop modifier missing');
+  if (level5._monsterLevelInterval() !== G.DemoConfig.monsterLevelInterval - 16) throw new Error('level and challenge threat interval modifiers did not combine');
+  if (level5._monsterHpMultiplier() <= level1._monsterHpMultiplier()) throw new Error('level difficulty did not raise monster hp');
+  if (level5._monsterDamageMultiplier() <= level1._monsterDamageMultiplier()) throw new Error('level difficulty did not raise monster damage');
 });
 ok('phase 36 demo progress migrates old saves and unlocks sequentially', () => {
   store[G.Config.SAVE_KEY] = JSON.stringify({
@@ -2197,7 +2234,7 @@ function runPhase35Baseline() {
   const records = runScriptedBaseline('PHASE35_BASELINE', 35035, scenarios, records => {
     validateBaselineCoverage(records);
     const covered = new Set(records.map(r => r.challengeId));
-    for (const challenge of G.Challenges || []) if (!covered.has(challenge.id)) throw new Error('phase 35 baseline missed challenge: ' + challenge.id);
+    for (const scenario of scenarios) if (!covered.has(scenario.challengeId)) throw new Error('phase 35 baseline missed challenge: ' + scenario.challengeId);
   });
   const outcomeCounts = records.reduce((counts, record) => {
     counts[record.outcome] = (counts[record.outcome] || 0) + 1;
