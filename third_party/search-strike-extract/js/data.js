@@ -181,6 +181,21 @@
       rewardBonus: 0.30,
       effects: { eliteDropMultiplier: 1.30, eliteSpawnChanceMultiplier: 1.30 },
     },
+    {
+      id: 'overclocked_trigger',
+      rewardBonus: 0.25,
+      effects: { playerFireRateMultiplier: 1.18, monsterSpawnIntervalMultiplier: 0.82 },
+    },
+    {
+      id: 'fragment_gamble',
+      rewardBonus: 0.25,
+      effects: { scrollDropMultiplier: 1.25, monsterLevelIntervalDelta: -8 },
+    },
+    {
+      id: 'far_sight_debt',
+      rewardBonus: 0.20,
+      effects: { playerProjectileRangeMultiplier: 1.30, eliteSpawnChanceMultiplier: 1.25 },
+    },
   ];
 
   G.DemoSkills = [
@@ -203,6 +218,21 @@
       id: 'longshot_charm',
       type: 'skill',
       effects: { playerProjectileRangeMultiplier: 1.20 },
+    },
+    {
+      id: 'runner_instinct',
+      type: 'skill',
+      effects: { playerSpeedMultiplier: 1.12 },
+    },
+    {
+      id: 'field_triage',
+      type: 'skill',
+      effects: { healMultiplier: 1.25 },
+    },
+    {
+      id: 'quick_search',
+      type: 'skill',
+      effects: { searchSpeedMultiplier: 1.20 },
     },
   ];
 

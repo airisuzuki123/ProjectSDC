@@ -1035,6 +1035,24 @@ ok('demo skill selection upgrades projectiles without reward multiplier', () => 
   raid.player.tryShoot(raid);
   if (raid.bullets.filter(b => b.owner === 'player').length !== 2) throw new Error('projectile bonus did not add a bullet');
 });
+ok('phase 33 build options apply their existing modifiers and localize', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  const skills = ['runner_instinct', 'field_triage', 'quick_search'];
+  const curses = ['overclocked_trigger', 'fragment_gamble', 'far_sight_debt'];
+  if (!skills.every(id => G.DemoSkills.some(s => s.id === id))) throw new Error('phase 33 skills missing from choice pool');
+  if (!curses.every(id => G.DemoCurses.some(c => c.id === id))) throw new Error('phase 33 curses missing from choice pool');
+  raid.dungeon.selectedSkills = skills.slice();
+  raid.dungeon.selectedCurses = curses.slice();
+  raid._recomputeCurseModifiers();
+  const m = raid.dungeon.modifiers;
+  if (raid.player.moveSpeedMultiplier <= 1 || m.healMultiplier <= 1 || m.searchSpeedMultiplier <= 1) throw new Error('phase 33 skill modifiers not applied');
+  if (m.playerFireRateMultiplier <= 1 || m.scrollDropMultiplier <= 1 || m.playerProjectileRangeMultiplier <= 1) throw new Error('phase 33 curse benefits not applied');
+  if (m.monsterSpawnIntervalMultiplier >= 1 || m.monsterLevelIntervalDelta >= 0 || m.eliteSpawnChanceMultiplier <= 1) throw new Error('phase 33 curse risks not applied');
+  for (const id of skills) if (G.t('skill.' + id + '.name') === 'skill.' + id + '.name') throw new Error('phase 33 skill localization missing');
+  for (const id of curses) if (G.t('curse.' + id + '.name') === 'curse.' + id + '.name') throw new Error('phase 33 curse localization missing');
+});
 ok('demo in-raid backpack pauses and supports nearby loot transfer', () => {
   const press = (raid, key) => {
     G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.down = false;
