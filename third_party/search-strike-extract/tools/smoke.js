@@ -1088,6 +1088,19 @@ ok('demo in-raid backpack pauses and supports nearby loot transfer', () => {
   if (!G.UI._moveBackpackToGround(raid, bagIndex)) throw new Error('backpack item did not drop to ground');
   if (raid.groundItems.length !== beforeGround + 1) throw new Error('dropped backpack item did not create ground loot');
 });
+ok('raid backpack keeps compact cells and exposes selected item details', () => {
+  const carried = G.Profile.scavKit();
+  carried.demo = true;
+  const raid = new G.Raid(G.Locations[0], carried);
+  raid.player.addLoot('m_bandage', 1);
+  G.UI.init({ startRaid() {}, startDemoRaid() {}, toHub() {} });
+  G.UI._raidInventoryRaid = raid;
+  G.UI._raidInventorySelection = 0;
+  G.UI.openRaidInventory(raid);
+  const text = collectDomText(G.UI.root);
+  if (text.indexOf(G.I18n.itemName('m_bandage')) < 0 || text.indexOf(G.t('ui.inv.action.use')) < 0) throw new Error('selected backpack item details missing');
+  if (text.indexOf(G.t('ui.inv.inspectEmpty')) >= 0) throw new Error('selected backpack item rendered as empty');
+});
 ok('demo in-raid backpack can reorder items without changing slot usage', () => {
   const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
   raid.player.backpack = [{ id: 'v_cash', n: 1 }, { id: 'v_doc', n: 1 }, { id: 'v_gpu', n: 1 }];

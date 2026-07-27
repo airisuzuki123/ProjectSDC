@@ -648,6 +648,10 @@
     _openRaidInventoryV2(raid) {
       this.show(); this.clear();
       const p = raid.player;
+      if (this._raidInventoryRaid !== raid) {
+        this._raidInventoryRaid = raid;
+        this._raidInventorySelection = null;
+      }
       if (p.ensureBackpackLayout) p.ensureBackpackLayout();
       const nearbyLoot = this._nearbyGroundLoot(raid);
       const wrap = h('div', { class: 'screen overlay-screen raid-inventory-screen' });
@@ -676,16 +680,15 @@
       p.backpack.forEach((s, i) => {
         const def = G.getItem(s.id);
         const sz = p._entryGridSize ? p._entryGridSize(s) : (G.itemGridSize ? G.itemGridSize(s.id) : { w: 1, h: 1 });
-        const slotText = t('ui.inv.slotCost', { n: sz.w * sz.h });
-        const tagJoin = ' · ';
-        const opts = { tag: slotText + tagJoin + t(def.type === 'med' ? 'ui.inv.tag.use' : def.type === 'armor' ? 'ui.inv.tag.equip' : 'ui.inv.tag.drop') };
-        if (def.type === 'med') opts.onclick = () => { p.useMed(raid); this.openRaidInventory(raid); };
-        else if (def.type === 'armor') opts.onclick = () => { p.equipArmorById(s.id, raid); this.openRaidInventory(raid); };
-        else opts.onclick = () => { this._moveBackpackToGround(raid, i); this.openRaidInventory(raid); };
+        const opts = {
+          selected: this._raidInventorySelection === i,
+          onclick: () => { this._raidInventorySelection = i; this._openRaidInventoryV2(raid); },
+        };
         const tile = itemTile(s.id, s.n, opts);
         tile.setAttribute('draggable', 'true');
         tile.className += ' bag-item';
         tile.setAttribute('style', (tile.getAttribute('style') || '') + ';grid-column:' + (s.x + 1) + ' / span ' + sz.w + ';grid-row:' + (s.y + 1) + ' / span ' + sz.h + ';');
+        tile.setAttribute('title', iname(s.id) + ' · ' + t('ui.inv.slotCost', { n: sz.w * sz.h }));
         tile.dataset.from = 'bag';
         tile.dataset.index = String(i);
         tile.addEventListener('dragstart', (e) => setDragData(e, { from: 'bag', index: i }));
@@ -700,6 +703,32 @@
         bagGrid.appendChild(tile);
       });
       bagPane.appendChild(bagGrid);
+      const selected = p.backpack[this._raidInventorySelection];
+      const inspector = h('div', { class: 'bag-inspector' });
+      if (selected) {
+        const def = G.getItem(selected.id);
+        const sz = p._entryGridSize ? p._entryGridSize(selected) : (G.itemGridSize ? G.itemGridSize(selected.id) : { w: 1, h: 1 });
+        const actionKey = def.type === 'med' ? 'use' : def.type === 'armor' ? 'equip' : 'drop';
+        const action = h('button', { class: 'bag-inspector-action', text: t('ui.inv.action.' + actionKey) });
+        action.addEventListener('click', () => {
+          if (def.type === 'med') p.useMed(raid);
+          else if (def.type === 'armor') p.equipArmorById(selected.id, raid);
+          else this._moveBackpackToGround(raid, this._raidInventorySelection);
+          this._raidInventorySelection = null;
+          this._openRaidInventoryV2(raid);
+        });
+        inspector.appendChild(h('div', { class: 'bag-inspector-icon', style: 'background:' + iconBg(def.color), html: G.Icons.itemSVG(selected.id) }));
+        inspector.appendChild(h('div', { class: 'bag-inspector-copy' }, [
+          h('div', { class: 'bag-inspector-name', style: 'color:' + (G.RARITY_COLOR[def.rarity] || '#fff'), text: iname(selected.id) }),
+          h('div', { class: 'bag-inspector-desc', text: itemDesc(def) || t('ui.inv.inspectNoEffect') }),
+          h('div', { class: 'bag-inspector-meta', text: t('ui.inv.slotCost', { n: sz.w * sz.h }) + ' · ₵' + U.formatNum((def.value || 0) * selected.n) }),
+        ]));
+        inspector.appendChild(action);
+      } else {
+        inspector.className += ' empty';
+        inspector.textContent = t('ui.inv.inspectEmpty');
+      }
+      bagPane.appendChild(inspector);
 
       const lootPane = h('div', { class: 'raid-inv-pane loot-pane' }, h('div', { class: 'raid-inv-pane-title', text: t('ui.inv.nearbyLoot') }));
       const lootGrid = h('div', { class: 'item-grid raid-inv-grid loot-grid' });
