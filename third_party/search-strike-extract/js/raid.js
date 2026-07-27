@@ -35,6 +35,7 @@
     this.coinFlights = [];
     this.time = 0;
     this.timeLeft = C.RAID_TIME;
+    if (this.demo && G.DemoConfig && G.DemoConfig.raidTimeLimit) this.timeLeft = G.DemoConfig.raidTimeLimit;
     this.kills = 0;
     this.killsByTier = { scav: 0, raider: 0, boss: 0 };   // fed to contract counters on extract
     this.paused = false;

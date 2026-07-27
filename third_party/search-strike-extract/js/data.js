@@ -48,6 +48,7 @@
     curseTimeTriggers: [90, 180],
     targetRunMinTime: 300,
     targetRunMaxTime: 480,
+    raidTimeLimit: 510,
     perfectExtractArmTime: 2,
     perfectExtractTime: 30,
     perfectExtractSpawnInterval: 4,

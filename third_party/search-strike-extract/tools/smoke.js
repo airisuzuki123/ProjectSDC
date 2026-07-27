@@ -151,6 +151,12 @@ ok('demo room map generates a short main path with portals', () => {
     }
   }
 });
+ok('demo raid extends the timer without changing regular raid time', () => {
+  const demo = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  const regular = new G.Raid(G.Locations[0], G.Profile.scavKit());
+  if (demo.timeLeft !== G.DemoConfig.raidTimeLimit) throw new Error('demo raid time limit not applied');
+  if (regular.timeLeft !== G.Config.RAID_TIME) throw new Error('regular raid time limit changed');
+});
 ok('demo room map can generate multiple funded reward rooms', () => {
   const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
   const oldChance = G.DemoConfig.roomRewardChance;
@@ -1515,7 +1521,7 @@ function runPhase27Baseline() {
     if (!metrics || metrics.roomsEntered < mainIds.length || metrics.resourcesSearched < 1 || metrics.choicesTaken < 1) {
       throw new Error('scripted route did not collect baseline metrics');
     }
-    const expectedOutcome = scenario.duration >= G.Config.RAID_TIME ? 'mia' : scenario.outcome;
+    const expectedOutcome = scenario.duration >= G.DemoConfig.raidTimeLimit ? 'mia' : scenario.outcome;
     if (result.outcome !== expectedOutcome) throw new Error('scripted route settled as ' + result.outcome + ', expected ' + expectedOutcome);
     return {
       run: index + 1,
