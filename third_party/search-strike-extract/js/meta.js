@@ -344,8 +344,35 @@
     // ---- shop ----
     buyPrice(id) { return Math.round(G.getItem(id).value * G.SHOP_MARKUP); },
     sellPrice(id) { return Math.round(G.getItem(id).value * G.SELL_RATE); },
+    highestShopUnlockIndex() {
+      const order = G.ShopUnlockOrder || [];
+      const progress = this.demoProgress ? this.demoProgress() : null;
+      let highest = progress && Number.isFinite(progress.highestUnlockedLevel) ? progress.highestUnlockedLevel : 1;
+      highest = Math.max(1, Math.min(highest, (G.DemoLevels || []).length || 1));
+      let idx = 0;
+      for (const level of G.DemoLevels || []) {
+        if (level.order <= highest) idx = Math.max(idx, order.indexOf(level.shopUnlockGroup));
+      }
+      return Math.max(0, idx);
+    },
+    isShopItemUnlocked(id) {
+      if ((G.ShopStock || []).indexOf(id) < 0) return false;
+      const group = G.ShopItemUnlockGroup && G.ShopItemUnlockGroup[id];
+      const idx = (G.ShopUnlockOrder || []).indexOf(group);
+      return idx >= 0 && idx <= this.highestShopUnlockIndex();
+    },
+    shopUnlockLevelForItem(id) {
+      const group = G.ShopItemUnlockGroup && G.ShopItemUnlockGroup[id];
+      return (G.DemoLevels || []).find(level => level.shopUnlockGroup === group) || null;
+    },
     buy(id, qty) {
       qty = qty || 1;
+      if (!G.getItem(id) || (G.ShopStock || []).indexOf(id) < 0) return { ok: false, msg: G.t('ui.trader.toast.cannotBuy') };
+      if (!this.isShopItemUnlocked(id)) {
+        const level = this.shopUnlockLevelForItem(id);
+        const msg = level ? G.t('toast.item_locked', { level: G.t('level.' + level.id + '.name') }) : G.t('ui.trader.toast.cannotBuy');
+        return { ok: false, msg };
+      }
       const cost = this.buyPrice(id) * qty;
       if (!this.canAfford(cost)) return { ok: false, msg: G.t('toast.no_credits') };
       if (this.stashFull() && this.countItem(id) === 0) return { ok: false, msg: G.t('toast.stash_full') };
@@ -405,6 +432,59 @@
       }
       this.save();
       return carried;
+    },
+
+    prepareDemoLoadout(loadout) {
+      const ld = loadout || this.data.loadout;
+      const emergency = this.shouldUseEmergencyPistol(ld);
+      if (emergency) return this.emergencyPistolKit();
+      if (!ld.primary && !ld.secondary) return { error: G.t('toast.no_weapon_selected') };
+      const need = {};
+      if (ld.primary) need[ld.primary] = (need[ld.primary] || 0) + 1;
+      if (ld.secondary) need[ld.secondary] = (need[ld.secondary] || 0) + 1;
+      if (ld.armor) need[ld.armor] = (need[ld.armor] || 0) + 1;
+      for (const id in need) if (this.countItem(id) < need[id]) return { error: G.t('toast.missing_item', { name: G.I18n.itemName(id) }) };
+
+      const carried = { weapons: [null, null], armorId: null, reserve: {}, backpack: [], phase39Preview: true };
+      if (ld.primary) carried.weapons[0] = { id: ld.primary, mag: G.getItem(ld.primary).mag };
+      if (ld.secondary) carried.weapons[1] = { id: ld.secondary, mag: G.getItem(ld.secondary).mag };
+      if (ld.armor) carried.armorId = ld.armor;
+      const calibers = {};
+      carried.weapons.forEach(w => { if (w) { const wd = G.getItem(w.id); calibers[wd.ammoType] = Math.max(calibers[wd.ammoType] || 0, wd.mag); } });
+      for (const cal in calibers) {
+        const cap = Math.max(120, calibers[cal] * 4);
+        const ammoId = AMMO_ITEM[cal];
+        const have = this.countItem(ammoId);
+        const take = Math.min(have, cap);
+        if (take > 0) carried.reserve[cal] = take;
+      }
+      if (ld.medId && ld.medCount > 0) {
+        const have = this.countItem(ld.medId);
+        const take = Math.min(have, ld.medCount);
+        if (take > 0) carried.backpack.push({ id: ld.medId, n: take });
+      }
+      return carried;
+    },
+
+    shouldUseEmergencyPistol(loadout) {
+      const hasWeapon = this.data.stash.some(s => {
+        const def = G.getItem(s.id);
+        return def && def.type === 'weapon' && s.n > 0;
+      });
+      if (hasWeapon || this.money() > 0) return false;
+      const ld = loadout || this.data.loadout || {};
+      return !ld.primary || this.countItem(ld.primary) <= 0;
+    },
+
+    emergencyPistolKit() {
+      return {
+        weapons: [{ id: 'w_pistol', mag: 8 }, null],
+        armorId: null,
+        reserve: { '9mm': 24 },
+        backpack: [],
+        emergency: true,
+        phase39Preview: true,
+      };
     },
 
     // Free scav kit — never deducts; ensures player can always raid.

@@ -562,12 +562,17 @@
   // Buy prices = value * markup. Sell = value * sellRate (in profile).
   G.SHOP_MARKUP = 1.6;
   G.SELL_RATE = 0.55;
-  G.ShopStock = [
-    'w_pistol', 'w_tt', 'w_smg', 'w_shotgun', 'w_vector', 'w_ak', 'w_akm', 'w_m4',
-    'a_vest1', 'a_vest2', 'a_vest3',
-    'm_bandage', 'm_medkit', 'm_surgical',
-    'ammo_9', 'ammo_45', 'ammo_545', 'ammo_762', 'ammo_12g',
-  ];
+  G.ShopUnlockOrder = ['starter', 'field', 'breach', 'deep', 'abyss'];
+  G.ShopUnlocks = {
+    starter: ['w_smg', 'w_shotgun', 'a_vest1', 'm_bandage', 'ammo_9', 'ammo_12g'],
+    field: ['w_vector', 'a_vest2', 'm_medkit', 'ammo_45'],
+    breach: ['w_ak', 'ammo_545'],
+    deep: ['w_akm', 'm_surgical', 'ammo_762'],
+    abyss: ['w_m4', 'a_vest3'],
+  };
+  G.ShopStock = G.ShopUnlockOrder.reduce((ids, group) => ids.concat(G.ShopUnlocks[group] || []), []);
+  G.ShopItemUnlockGroup = {};
+  for (const group of G.ShopUnlockOrder) for (const id of G.ShopUnlocks[group] || []) G.ShopItemUnlockGroup[id] = group;
 
   // Starting profile (new player)
   G.STARTING = {

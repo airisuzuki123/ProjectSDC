@@ -1332,7 +1332,7 @@ ok('all UI screens & overlays render', () => {
   demoRaid.dungeon.cursePending = true;
   G.UI.openCurseChoice(demoRaid);
 });
-ok('phase 37 hub shows five levels with lock states and settings entry', () => {
+ok('phase 39 hub shows five levels and economy entries', () => {
   const host = { startRaid() {}, startDemoRaid() {}, toHub() {}, };
   G.UI.init(host);
   G.Profile.resetAll();
@@ -1342,7 +1342,7 @@ ok('phase 37 hub shows five levels with lock states and settings entry', () => {
   const stats = collectByClass(G.UI.root, 'statstrip');
   if (levelCards.length !== 5) throw new Error('hub should expose five level cards');
   if (stats.length !== 0) throw new Error('hub stats strip should be hidden');
-  const hiddenKeys = ['ui.hub.menu.deploy.title', 'ui.hub.menu.stash.title', 'ui.hub.menu.trader.title', 'ui.hub.menu.contracts.title'];
+  const hiddenKeys = ['ui.hub.menu.deploy.title', 'ui.hub.menu.contracts.title'];
   for (const key of hiddenKeys) {
     const label = G.t(key);
     if (label && label !== key && text.indexOf(label) >= 0) throw new Error('hub still shows hidden entry: ' + key);
@@ -1351,6 +1351,9 @@ ok('phase 37 hub shows five levels with lock states and settings entry', () => {
   if (text.indexOf(G.t('level.level_1.name')) < 0 || text.indexOf(G.t('level.level_5.name')) < 0) throw new Error('level names missing from hub');
   if (text.indexOf(G.t('ui.levels.status.locked')) < 0) throw new Error('locked state missing from hub');
   if (text.indexOf(G.t('ui.levels.rooms', { n: 8 })) < 0) throw new Error('regular room budget missing from hub');
+  if (text.indexOf(G.t('ui.hub.menu.loadout.title')) < 0) throw new Error('loadout entry missing from hub');
+  if (text.indexOf(G.t('ui.hub.menu.trader.title')) < 0) throw new Error('trader entry missing from hub');
+  if (text.indexOf(G.t('ui.hub.menu.stash.title')) < 0) throw new Error('stash entry missing from hub');
   if (text.indexOf(G.t('ui.hub.menu.settings.title')) < 0) throw new Error('settings entry missing from hub');
 });
 ok('phase 37 results show level clear and next unlock state', () => {
@@ -1462,6 +1465,94 @@ ok('phase 38 results show relic currency settlement details', () => {
   if (text.indexOf(G.t('ui.results.relicBase')) < 0) throw new Error('relic base line missing');
   if (text.indexOf(G.t('ui.results.relicCurrency')) < 0 || text.indexOf(G.t('ui.results.currencyValue', { value: G.Utils.formatNum(945) })) < 0) throw new Error('relic currency line missing');
   if (text.indexOf(G.t('ui.results.assetsReturned')) < 0 || text.indexOf(G.I18n.itemName('m_bandage')) < 0) throw new Error('asset return detail missing');
+});
+ok('phase 39 shop unlocks by stage and does not sell pistols', () => {
+  G.Profile.resetAll();
+  if ((G.ShopStock || []).indexOf('w_pistol') >= 0 || (G.ShopStock || []).indexOf('w_tt') >= 0) throw new Error('pistols should not be shop stock');
+  if (!G.Profile.isShopItemUnlocked('w_smg')) throw new Error('starter shop item locked');
+  if (G.Profile.isShopItemUnlocked('w_m4')) throw new Error('abyss shop item unlocked too early');
+  const locked = G.Profile.buy('w_m4', 1);
+  if (locked.ok) throw new Error('locked item was buyable');
+  G.UI.init({ startRaid() {}, startDemoRaid() {}, toHub() {} });
+  G.UI.showTrader('buy', 'weapon');
+  const text = collectDomText(G.UI.root);
+  if (text.indexOf(G.I18n.itemName('w_pistol')) >= 0 || text.indexOf(G.I18n.itemName('w_tt')) >= 0) throw new Error('buy shop displayed pistols');
+  if (text.indexOf(G.t('ui.trader.locked', { level: G.t('level.level_5.name') })) < 0) throw new Error('locked shop item reason missing');
+  G.Profile.recordDemoLevelResult('level_1', { outcome: 'perfect_extract', time: 300 });
+  G.Profile.recordDemoLevelResult('level_2', { outcome: 'perfect_extract', time: 320 });
+  G.Profile.recordDemoLevelResult('level_3', { outcome: 'perfect_extract', time: 340 });
+  G.Profile.recordDemoLevelResult('level_4', { outcome: 'perfect_extract', time: 360 });
+  if (!G.Profile.isShopItemUnlocked('w_m4')) throw new Error('abyss shop item did not unlock after stage progress');
+});
+ok('phase 39 shop failures do not spend currency', () => {
+  G.Profile.resetAll();
+  const money0 = G.Profile.money();
+  const missing = G.Profile.buy('missing_shop_item', 1);
+  if (missing.ok || G.Profile.money() !== money0) throw new Error('missing shop item changed currency');
+  G.Profile.data.money = 0;
+  G.Profile.save();
+  const poor = G.Profile.buy('m_bandage', 1);
+  if (poor.ok || G.Profile.money() !== 0) throw new Error('insufficient balance changed currency');
+});
+ok('phase 39 demo loadout builds carried gear without mutating stash', () => {
+  G.Profile.resetAll();
+  const beforePistol = G.Profile.countItem('w_pistol');
+  const beforeAmmo = G.Profile.countItem('ammo_9');
+  const beforeMeds = G.Profile.countItem('m_bandage');
+  const carried = G.Profile.prepareDemoLoadout({ primary: 'w_pistol', secondary: null, armor: null, medId: 'm_bandage', medCount: 2 });
+  if (carried.error) throw new Error(carried.error);
+  if (!carried.weapons[0] || carried.weapons[0].id !== 'w_pistol') throw new Error('configured weapon missing from carried kit');
+  if (!carried.reserve['9mm']) throw new Error('configured ammo not previewed');
+  if (!carried.backpack.some(s => s.id === 'm_bandage' && s.n === 2)) throw new Error('configured meds not previewed');
+  if (G.Profile.countItem('w_pistol') !== beforePistol || G.Profile.countItem('ammo_9') !== beforeAmmo || G.Profile.countItem('m_bandage') !== beforeMeds) throw new Error('phase 39 loadout mutated stash');
+});
+ok('phase 39 staged dive starts from loadout without deducting stash', () => {
+  G.Profile.resetAll();
+  const beforePistol = G.Profile.countItem('w_pistol');
+  const beforeAmmo = G.Profile.countItem('ammo_9');
+  const beforeMeds = G.Profile.countItem('m_bandage');
+  G.Profile.data.loadout.primary = 'w_pistol';
+  G.Profile.data.loadout.secondary = null;
+  G.Profile.data.loadout.armor = null;
+  G.Profile.data.loadout.medId = 'm_bandage';
+  G.Profile.data.loadout.medCount = 1;
+  G.Profile.save();
+  const res = G.Game.startDemoRaid({ levelId: 'level_1', challengeId: 'high_tide' });
+  if (!res || !res.ok) throw new Error('staged dive did not start from configured loadout');
+  if (G.Profile.countItem('w_pistol') !== beforePistol || G.Profile.countItem('ammo_9') !== beforeAmmo || G.Profile.countItem('m_bandage') !== beforeMeds) throw new Error('phase 39 staged start deducted stash');
+  G.Game.toHub();
+});
+ok('phase 39 emergency pistol is temporary and not sellable', () => {
+  G.Profile.resetAll();
+  G.Profile.data.money = 0;
+  G.Profile.data.stash = [{ id: 'm_bandage', n: 1 }];
+  G.Profile.data.loadout.primary = 'w_pistol';
+  G.Profile.save();
+  const carried = G.Profile.prepareDemoLoadout();
+  if (!carried.emergency || !carried.weapons[0] || carried.weapons[0].id !== 'w_pistol') throw new Error('emergency pistol not issued');
+  if (G.Profile.countItem('w_pistol') !== 0) throw new Error('emergency pistol entered stash');
+  const money0 = G.Profile.money();
+  const sold = G.Profile.sell('w_pistol', 1);
+  if (sold.ok || G.Profile.money() !== money0) throw new Error('emergency pistol became sellable');
+});
+ok('phase 39 missing configured gear does not start a staged dive', () => {
+  G.Profile.resetAll();
+  G.Profile.data.money = 100;
+  G.Profile.data.stash = [{ id: 'm_bandage', n: 1 }];
+  G.Profile.data.loadout.primary = 'w_pistol';
+  G.Profile.save();
+  const res = G.Game.startDemoRaid({ levelId: 'level_1' });
+  if (!res || !res.error) throw new Error('missing configured weapon started a dive');
+  if (G.Profile.countItem('m_bandage') !== 1) throw new Error('failed staged start mutated stash');
+});
+ok('phase 39 loadout screen targets stages instead of old locations', () => {
+  const host = { startRaid() {}, startDemoRaid() {}, toHub() {} };
+  G.UI.init(host);
+  G.Profile.resetAll();
+  G.UI.showLoadout(G.getDemoLevel('level_1'));
+  const text = collectDomText(G.UI.root);
+  if (text.indexOf(G.t('level.level_1.name')) < 0) throw new Error('loadout screen missing stage target');
+  if (text.indexOf(G.I18n.locName(G.Locations[0])) >= 0) throw new Error('loadout screen still targets old location flow');
 });
 ok('pause screen repeats the active challenge rule summary', () => {
   const host = { startRaid() {}, startDemoRaid() {}, toHub() {} };

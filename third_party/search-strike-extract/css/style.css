@@ -192,6 +192,8 @@ body {
 button.mini { background: var(--accent2); color: #06110f; border: none; border-radius: 6px; padding: 8px 10px; font-weight: 800; cursor: pointer; font-family: inherit; font-size: 12px; }
 button.mini:hover { filter: brightness(1.12); }
 button.mini:active { transform: scale(.95); }
+button.mini.disabled, button.mini:disabled { opacity: .45; cursor: default; filter: grayscale(.45); }
+button.mini.disabled:hover, button.mini:disabled:hover { filter: grayscale(.45); }
 
 /* ---- settings ---- */
 .settings-body { display: flex; flex-direction: column; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }

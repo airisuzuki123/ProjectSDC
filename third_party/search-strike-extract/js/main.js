@@ -104,7 +104,8 @@
       if (level && G.Profile.canStartDemoLevel && !G.Profile.canStartDemoLevel(level.id)) {
         return { error: G.t('toast.level_locked') };
       }
-      const carried = G.Profile.scavKit();
+      const carried = opts.carried || (G.Profile.prepareDemoLoadout ? G.Profile.prepareDemoLoadout() : G.Profile.scavKit());
+      if (carried.error) return carried;
       carried.demo = true;
       carried.levelId = level && level.id;
       // Player-facing entry is random. An explicit id remains available for

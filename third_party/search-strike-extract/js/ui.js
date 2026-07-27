@@ -93,7 +93,7 @@
         case 'intro': return this.showIntro();
         case 'hub': return this.showHub();
         case 'deploy': return this.showDeploy();
-        case 'loadout': return this.selectedLocation ? this.showLoadout() : this.showHub();
+        case 'loadout': return this.showLoadout(this.selectedLevel);
         case 'stash': return this.showStash();
         case 'trader': return this.showTrader(this._traderTab);
         case 'contracts': return this.showContracts();
@@ -158,6 +158,9 @@
       for (const level of G.DemoLevels || []) levelGrid.appendChild(this._levelCard(level, progress));
       wrap.appendChild(levelGrid);
       wrap.appendChild(h('div', { class: 'mainmenu demo-settings-menu' }, [
+        bigBtn(t('ui.hub.menu.loadout.title'), t('ui.hub.menu.loadout.sub'), 'primary', () => this.showLoadout(this._defaultLoadoutLevel())),
+        bigBtn(t('ui.hub.menu.trader.title'), t('ui.hub.menu.trader.sub'), '', () => this.showTrader('buy')),
+        bigBtn(t('ui.hub.menu.stash.title'), t('ui.hub.menu.stash.sub', { used: G.Profile.stashUsed(), total: G.Config.STASH_SLOTS }), '', () => this.showStash()),
         bigBtn(t('ui.hub.menu.settings.title'), t('ui.hub.menu.settings.sub'), 'secondary', () => this.showSettings()),
       ]));
       wrap.appendChild(h('div', { class: 'hint demo-hub-hint', text: t('ui.hub.tip') }));
@@ -206,10 +209,15 @@
       if (!unlocked) card.disabled = true;
       card.addEventListener('click', () => {
         if (!unlocked) { this.toast(t('toast.level_locked')); return; }
-        const res = this.host.startDemoRaid({ levelId: level.id });
-        if (res && res.error) this.toast(res.error);
+        this.showLoadout(level);
       });
       return card;
+    },
+
+    _defaultLoadoutLevel() {
+      if (this.selectedLevel && G.Profile.canStartDemoLevel && G.Profile.canStartDemoLevel(this.selectedLevel.id)) return this.selectedLevel;
+      const progress = G.Profile.demoProgress ? G.Profile.demoProgress() : null;
+      return (G.getDemoLevel && G.getDemoLevel(progress ? progress.highestUnlockedLevel : 1)) || (G.getDefaultDemoLevel && G.getDefaultDemoLevel());
     },
 
     /* ----------------------------- DEPLOY ------------------------------ */
@@ -235,12 +243,13 @@
     },
 
     /* ----------------------------- LOADOUT ----------------------------- */
-    showLoadout() {
+    showLoadout(level) {
       this.screen = 'loadout'; this.clear();
       const p = G.Profile, ld = p.data.loadout;
-      const loc = this.selectedLocation;
+      const targetLevel = level || this._defaultLoadoutLevel();
+      this.selectedLevel = targetLevel;
       const wrap = h('div', { class: 'screen' });
-      wrap.appendChild(this.header(t('ui.loadout.header'), t('ui.loadout.subtitle', { location: G.I18n.locName(loc) })));
+      wrap.appendChild(this.header(t('ui.loadout.header'), t('ui.loadout.subtitle', { location: t('level.' + targetLevel.id + '.name') })));
 
       const owned = (type) => {
         const ids = []; const seen = {};
@@ -280,9 +289,8 @@
 
       wrap.appendChild(h('div', { class: 'warn', text: t('ui.loadout.warn') }));
       wrap.appendChild(navBtns([
-        [t('ui.nav.back'), () => this.showDeploy()],
-        [t('ui.loadout.scavRun'), () => this.host.startRaid(loc, G.Profile.scavKit()), 'scav'],
-        [t('ui.loadout.deploy'), () => this._deploy(loc), 'primary'],
+        [t('ui.nav.back'), () => this.showHub()],
+        [t('ui.loadout.deploy'), () => this._deployDemo(targetLevel), 'primary'],
       ]));
       this.root.appendChild(wrap);
       this._refreshLoadoutInfo();
@@ -295,13 +303,17 @@
       const calibers = {};
       [ld.primary, ld.secondary].forEach(id => { if (id) calibers[G.getItem(id).ammoType] = true; });
       const rows = [];
+      const preview = p.prepareDemoLoadout ? p.prepareDemoLoadout(ld) : null;
+      if (preview && preview.emergency) {
+        rows.push(h('div', { class: 'li-line', text: t('ui.loadout.info.emergencyPistol') }));
+      }
       for (const cal in calibers) {
         const have = p.countItem(G.AMMO_ITEM[cal]);
         const calName = ammoName(cal);
         rows.push(h('div', { class: 'li-line' + (have <= 0 ? ' bad' : ''),
           text: have <= 0 ? t('ui.loadout.info.ammoNone', { cal: calName, count: have }) : t('ui.loadout.info.ammoHave', { cal: calName, count: have }) }));
       }
-      if (!rows.length) rows.push(h('div', { class: 'li-line', text: t('ui.loadout.info.noWeapon') }));
+      if (!rows.length) rows.push(h('div', { class: 'li-line' + (preview && preview.error ? ' bad' : ''), text: preview && preview.error ? preview.error : t('ui.loadout.info.noWeapon') }));
       let val = 0;
       [ld.primary, ld.secondary, ld.armor].forEach(id => { if (id && p.countItem(id) > 0) val += G.getItem(id).value; });
       info.appendChild(h('div', { class: 'li-title', text: t('ui.loadout.info.autoLoadedTitle') }));
@@ -309,10 +321,9 @@
       info.appendChild(h('div', { class: 'li-risk', text: t('ui.loadout.info.valueAtRisk', { value: U.formatNum(val) }) }));
     },
 
-    _deploy(loc) {
-      const carried = G.Profile.commitRaidStart();
-      if (carried.error) { this.toast(carried.error); return; }
-      this.host.startRaid(loc, carried);
+    _deployDemo(level) {
+      const res = this.host.startDemoRaid({ levelId: level && level.id });
+      if (res && res.error) this.toast(res.error);
     },
 
     /* ------------------------------ STASH ------------------------------ */
@@ -385,16 +396,22 @@
       if (!ids.length) { list.appendChild(h('div', { class: 'empty', text: t('ui.trader.empty') })); return; }
       for (const id of ids) {
         const def = G.getItem(id);
+        const unlocked = p.isShopItemUnlocked ? p.isShopItemUnlocked(id) : true;
+        const unlockLevel = p.shopUnlockLevelForItem ? p.shopUnlockLevelForItem(id) : null;
+        const buyAttrs = { class: 'mini' + (unlocked ? '' : ' disabled'), text: t('ui.trader.buyBtn') };
+        if (unlocked) buyAttrs.onclick = () => this._afterTrade(p.buy(id, 1)); else buyAttrs.disabled = 'disabled';
+        const buyManyAttrs = { class: 'mini' + (unlocked ? '' : ' disabled'), text: t('ui.trader.buyX10') };
+        if (unlocked) buyManyAttrs.onclick = () => this._afterTrade(p.buy(id, 10)); else buyManyAttrs.disabled = 'disabled';
         const row = h('div', { class: 'trade-row' }, [
           itemTile(id, 1, {}),
           h('div', { class: 'tr-info' }, [
             h('div', { class: 'tr-name', text: iname(id) }),
-            h('div', { class: 'tr-desc', text: itemDesc(def) }),
+            h('div', { class: 'tr-desc', text: unlocked ? itemDesc(def) : t('ui.trader.locked', { level: unlockLevel ? t('level.' + unlockLevel.id + '.name') : '?' }) }),
           ]),
           h('div', { class: 'tr-price', text: '₵' + U.formatNum(p.buyPrice(id)) }),
           h('div', { class: 'tr-actions' }, [
-            h('button', { class: 'mini', text: t('ui.trader.buyBtn'), onclick: () => this._afterTrade(p.buy(id, 1)) }),
-            (def.stack && def.stack >= 5) ? h('button', { class: 'mini', text: t('ui.trader.buyX10'), onclick: () => this._afterTrade(p.buy(id, 10)) }) : null,
+            h('button', buyAttrs),
+            (def.stack && def.stack >= 5) ? h('button', buyManyAttrs) : null,
           ]),
         ]);
         list.appendChild(row);
