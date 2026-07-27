@@ -591,6 +591,7 @@
           if (rs.duplicate) lines.push([t('ui.results.relicDuplicate'), t('ui.common.yes')]);
           lines.push([t('ui.results.relicBalance'), t('ui.results.currencyValue', { value: U.formatNum(rs.balance || 0) })]);
           lines.push([t('ui.results.assetsReturned'), formatSettlementItems(rs.carriedItems)]);
+          if (rs.assetOverflowSold > 0) lines.push([t('ui.results.stashFull'), t('ui.results.overflowSold', { value: U.formatNum(rs.assetOverflowSold) })]);
         }
         lines.push([t('ui.results.status'), t('ui.results.statusSecured')]);
       } else {

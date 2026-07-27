@@ -32,6 +32,7 @@
 
   function Raid(location, carried) {
     this.location = location;
+    this.carried = carried || {};
     this.scav = !!carried.scav;
     this.demo = !!carried.demo;
     this.level = this.demo && carried.levelId && G.getDemoLevel ? G.getDemoLevel(carried.levelId) : null;

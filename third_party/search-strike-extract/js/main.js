@@ -104,8 +104,9 @@
       if (level && G.Profile.canStartDemoLevel && !G.Profile.canStartDemoLevel(level.id)) {
         return { error: G.t('toast.level_locked') };
       }
-      const carried = opts.carried || (G.Profile.prepareDemoLoadout ? G.Profile.prepareDemoLoadout() : G.Profile.scavKit());
+      const carried = opts.carried || (G.Profile.commitDemoRaidStart ? G.Profile.commitDemoRaidStart() : (G.Profile.prepareDemoLoadout ? G.Profile.prepareDemoLoadout() : G.Profile.scavKit()));
       if (carried.error) return carried;
+      if (opts.carried && !carried.assetsDeducted && !carried.emergency) carried.external = true;
       carried.demo = true;
       carried.levelId = level && level.id;
       // Player-facing entry is random. An explicit id remains available for
@@ -125,7 +126,7 @@
       const extracted = res.outcome === 'extract' || res.outcome === 'normal_extract' || res.outcome === 'perfect_extract';
       if (this.raid.demo) {
         if (res.levelId && G.Profile.recordDemoLevelResult) levelProgress = G.Profile.recordDemoLevelResult(res.levelId, res);
-        if (G.Profile.recordDemoRelicSettlement) relicSettlement = G.Profile.recordDemoRelicSettlement(res, p);
+        if (G.Profile.recordDemoRelicSettlement) relicSettlement = G.Profile.recordDemoRelicSettlement(res, p, this.raid.carried);
       } else if (extracted) {
         ex = G.Profile.commitExtract(p, this.raid.scav);
         if (res.outcome === 'extract') G.Profile.recordRaid(res);

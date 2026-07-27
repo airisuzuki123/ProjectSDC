@@ -1506,7 +1506,7 @@ ok('phase 39 demo loadout builds carried gear without mutating stash', () => {
   if (!carried.backpack.some(s => s.id === 'm_bandage' && s.n === 2)) throw new Error('configured meds not previewed');
   if (G.Profile.countItem('w_pistol') !== beforePistol || G.Profile.countItem('ammo_9') !== beforeAmmo || G.Profile.countItem('m_bandage') !== beforeMeds) throw new Error('phase 39 loadout mutated stash');
 });
-ok('phase 39 staged dive starts from loadout without deducting stash', () => {
+ok('phase 40 staged dive starts from loadout and deducts stash', () => {
   G.Profile.resetAll();
   const beforePistol = G.Profile.countItem('w_pistol');
   const beforeAmmo = G.Profile.countItem('ammo_9');
@@ -1519,8 +1519,39 @@ ok('phase 39 staged dive starts from loadout without deducting stash', () => {
   G.Profile.save();
   const res = G.Game.startDemoRaid({ levelId: 'level_1', challengeId: 'high_tide' });
   if (!res || !res.ok) throw new Error('staged dive did not start from configured loadout');
-  if (G.Profile.countItem('w_pistol') !== beforePistol || G.Profile.countItem('ammo_9') !== beforeAmmo || G.Profile.countItem('m_bandage') !== beforeMeds) throw new Error('phase 39 staged start deducted stash');
+  if (G.Profile.countItem('w_pistol') !== beforePistol - 1) throw new Error('phase 40 staged start did not deduct weapon');
+  if (G.Profile.countItem('ammo_9') >= beforeAmmo) throw new Error('phase 40 staged start did not deduct ammo');
+  if (G.Profile.countItem('m_bandage') !== beforeMeds - 1) throw new Error('phase 40 staged start did not deduct meds');
   G.Game.toHub();
+});
+ok('phase 40 successful demo settlement returns assets without stashing relics', () => {
+  G.Profile.resetAll();
+  const ld = { primary: 'w_pistol', secondary: null, armor: null, medId: 'm_bandage', medCount: 1 };
+  const beforePistol = G.Profile.countItem('w_pistol');
+  const beforeAmmo = G.Profile.countItem('ammo_9');
+  const beforeMeds = G.Profile.countItem('m_bandage');
+  const carried = G.Profile.commitDemoRaidStart(ld);
+  if (carried.error) throw new Error(carried.error);
+  const player = {
+    weapons: carried.weapons.map(w => w ? { id: w.id, mag: w.mag } : null),
+    armor: null,
+    reserve: Object.assign({}, carried.reserve),
+    backpack: carried.backpack.concat([{ id: 'v_cash', n: 2 }, { id: 'w_smg', n: 1 }]),
+    kills: 0,
+  };
+  const res = G.Profile.recordDemoRelicSettlement({ settlementId: 'phase40-success-a', outcome: 'normal_extract', rewardMultiplier: 1 }, player, carried);
+  if (res.currencyAwarded !== 300 || G.Profile.money() !== G.STARTING.money + 300) throw new Error('relic currency not awarded correctly');
+  if (G.Profile.countItem('v_cash') !== 0) throw new Error('valuable relic entered stash');
+  if (G.Profile.countItem('w_pistol') !== beforePistol || G.Profile.countItem('m_bandage') !== beforeMeds) throw new Error('surviving carried assets were not returned');
+  if (G.Profile.countItem('ammo_9') !== beforeAmmo) throw new Error('reserve ammo was not returned');
+  if (G.Profile.countItem('w_smg') < 1) throw new Error('found weapon did not enter stash');
+  const pistolsAfter = G.Profile.countItem('w_pistol');
+  const smgAfter = G.Profile.countItem('w_smg');
+  const dup = G.Profile.recordDemoRelicSettlement({ settlementId: 'phase40-success-a', outcome: 'normal_extract', rewardMultiplier: 1 }, player, carried);
+  if (!dup.duplicate || !dup.assetsDuplicate) throw new Error('duplicate settlement was not marked');
+  if (G.Profile.countItem('w_pistol') !== pistolsAfter || G.Profile.countItem('w_smg') !== smgAfter) throw new Error('duplicate settlement copied assets');
+  const again = G.Profile.commitDemoRaidStart(ld);
+  if (again.error) throw new Error('returned loadout could not be brought into another stage');
 });
 ok('phase 39 emergency pistol is temporary and not sellable', () => {
   G.Profile.resetAll();
@@ -1534,6 +1565,62 @@ ok('phase 39 emergency pistol is temporary and not sellable', () => {
   const money0 = G.Profile.money();
   const sold = G.Profile.sell('w_pistol', 1);
   if (sold.ok || G.Profile.money() !== money0) throw new Error('emergency pistol became sellable');
+});
+ok('phase 40 failed demo settlement destroys brought and found assets', () => {
+  G.Profile.resetAll();
+  G.Profile.data.money = 0;
+  G.Profile.save();
+  const ld = { primary: 'w_pistol', secondary: null, armor: null, medId: 'm_bandage', medCount: 1 };
+  const beforePistol = G.Profile.countItem('w_pistol');
+  const beforeMeds = G.Profile.countItem('m_bandage');
+  const carried = G.Profile.commitDemoRaidStart(ld);
+  if (carried.error) throw new Error(carried.error);
+  const player = {
+    weapons: carried.weapons.map(w => w ? { id: w.id, mag: w.mag } : null),
+    armor: null,
+    reserve: Object.assign({}, carried.reserve),
+    backpack: carried.backpack.concat([{ id: 'v_cash', n: 2 }, { id: 'w_smg', n: 1 }]),
+    kills: 0,
+  };
+  const res = G.Profile.recordDemoRelicSettlement({ settlementId: 'phase40-failed-a', outcome: 'failed', rewardMultiplier: 2 }, player, carried);
+  if (res.currencyAwarded !== 0 || G.Profile.money() !== 0) throw new Error('failed settlement awarded currency');
+  if (G.Profile.countItem('w_pistol') !== beforePistol - 1 || G.Profile.countItem('m_bandage') !== beforeMeds - 1) throw new Error('failed settlement returned brought assets');
+  if (G.Profile.countItem('v_cash') !== 0 || G.Profile.countItem('w_smg') !== 0) throw new Error('failed settlement kept found assets');
+  if (!res.lostItems.some(item => item.id === 'w_pistol') || !res.lostItems.some(item => item.id === 'w_smg') || !res.lostItems.some(item => item.id === 'v_cash')) throw new Error('failed settlement did not report lost assets');
+});
+ok('phase 40 emergency pistol is not returned on successful settlement', () => {
+  G.Profile.resetAll();
+  G.Profile.data.money = 0;
+  G.Profile.data.stash = [{ id: 'm_bandage', n: 1 }];
+  G.Profile.data.loadout.primary = 'w_pistol';
+  G.Profile.save();
+  const carried = G.Profile.commitDemoRaidStart();
+  if (!carried.emergency) throw new Error('emergency kit not issued');
+  const player = {
+    weapons: carried.weapons.map(w => w ? { id: w.id, mag: w.mag } : null),
+    armor: null,
+    reserve: Object.assign({}, carried.reserve),
+    backpack: [{ id: 'v_cash', n: 1 }],
+    kills: 0,
+  };
+  G.Profile.recordDemoRelicSettlement({ settlementId: 'phase40-emergency-a', outcome: 'normal_extract', rewardMultiplier: 1 }, player, carried);
+  if (G.Profile.countItem('w_pistol') !== 0 || G.Profile.countItem('ammo_9') !== 0) throw new Error('emergency kit entered stash');
+  const sold = G.Profile.sell('w_pistol', 1);
+  if (sold.ok) throw new Error('emergency pistol became sellable after settlement');
+});
+ok('phase 40 externally supplied demo gear cannot be copied by settlement', () => {
+  G.Profile.resetAll();
+  const carried = { weapons: [{ id: 'w_m4', mag: 30 }, null], armorId: null, reserve: { '545': 60 }, backpack: [], external: true };
+  const player = {
+    weapons: [{ id: 'w_m4', mag: 30 }, null],
+    armor: null,
+    reserve: { '545': 60 },
+    backpack: [{ id: 'v_cash', n: 1 }],
+    kills: 0,
+  };
+  G.Profile.recordDemoRelicSettlement({ settlementId: 'phase40-external-a', outcome: 'normal_extract', rewardMultiplier: 1 }, player, carried);
+  if (G.Profile.countItem('w_m4') !== 0 || G.Profile.countItem('ammo_545') !== 0) throw new Error('external carried gear was copied into stash');
+  if (G.Profile.countItem('v_cash') !== 0) throw new Error('external valuable entered stash');
 });
 ok('phase 39 missing configured gear does not start a staged dive', () => {
   G.Profile.resetAll();

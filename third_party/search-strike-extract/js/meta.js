@@ -78,6 +78,7 @@
     _freshDemoEconomy() {
       return {
         settledRunIds: [],
+        assetSettledRunIds: [],
         lastSettlement: null,
         version: 1,
       };
@@ -163,6 +164,7 @@
         ? this.data.demoEconomy : {};
       this.data.demoEconomy = {
         settledRunIds: Array.isArray(raw.settledRunIds) ? raw.settledRunIds.filter(id => typeof id === 'string' && id).slice(-100) : [],
+        assetSettledRunIds: Array.isArray(raw.assetSettledRunIds) ? raw.assetSettledRunIds.filter(id => typeof id === 'string' && id).slice(-100) : [],
         lastSettlement: (raw.lastSettlement && typeof raw.lastSettlement === 'object' && !Array.isArray(raw.lastSettlement)) ? raw.lastSettlement : null,
         version: 1,
       };
@@ -232,9 +234,9 @@
     earn(n) { this.data.money += n; this.save(); },
     spend(n) { if (this.data.money < n) return false; this.data.money -= n; this.save(); return true; },
 
-    recordDemoRelicSettlement(result, player) {
+    recordDemoRelicSettlement(result, player, carried) {
       this._sanitizeDemoEconomy();
-      const settlement = this._buildDemoRelicSettlement(result, player);
+      const settlement = this._buildDemoRelicSettlement(result, player, carried);
       const economy = this.data.demoEconomy;
       if (!settlement.ok) {
         economy.lastSettlement = settlement;
@@ -249,19 +251,29 @@
         economy.settledRunIds.push(settlement.settlementId);
         economy.settledRunIds = economy.settledRunIds.slice(-100);
       }
+      const alreadyReturned = economy.assetSettledRunIds.indexOf(settlement.settlementId) >= 0;
+      settlement.assetsDuplicate = alreadyReturned;
+      settlement.assetOverflowSold = 0;
+      if (settlement.success && !alreadyReturned) {
+        const returned = this._returnDemoAssetsToStash(settlement.carriedItems);
+        settlement.carriedItems = returned.items;
+        settlement.assetOverflowSold = returned.sold;
+        economy.assetSettledRunIds.push(settlement.settlementId);
+        economy.assetSettledRunIds = economy.assetSettledRunIds.slice(-100);
+      }
       settlement.balance = this.data.money;
       economy.lastSettlement = settlement;
       this.save();
       return settlement;
     },
 
-    _buildDemoRelicSettlement(result, player) {
+    _buildDemoRelicSettlement(result, player, carried) {
       const outcome = result && result.outcome;
       const success = outcome === 'extract' || outcome === 'normal_extract' || outcome === 'perfect_extract';
       const rewardMultiplier = Number.isFinite(result && result.rewardMultiplier) ? result.rewardMultiplier : 1;
       const settlementId = this._demoSettlementId(result, player);
       const relics = this._collectDemoSettlementItems(player, 'valuable');
-      const carried = this._collectDemoSettlementItems(player, null, 'valuable');
+      const assets = this._collectDemoAssetItems(player, carried);
       const baseValue = relics.reduce((sum, item) => sum + item.value, 0);
       const currency = success ? Math.round(baseValue * rewardMultiplier) : 0;
       return {
@@ -276,9 +288,9 @@
         duplicate: false,
         balance: this.data.money,
         relicItems: relics,
-        carriedItems: success ? carried : [],
-        lostItems: success ? [] : relics.concat(carried),
-        lostValue: success ? 0 : baseValue,
+        carriedItems: success ? assets : [],
+        lostItems: success ? [] : relics.concat(assets),
+        lostValue: success ? 0 : baseValue + assets.reduce((sum, item) => sum + item.value, 0),
       };
     },
 
@@ -307,6 +319,60 @@
         grouped[s.id].value += (def.value || 0) * n;
       }
       return Object.keys(grouped).map(id => grouped[id]);
+    },
+
+    _collectDemoAssetItems(player, carried) {
+      if (carried && carried.external) return [];
+      const grouped = {};
+      const add = (id, n) => {
+        const def = G.getItem(id);
+        n = Math.floor(n || 0);
+        if (!def || n <= 0 || !this._isDemoReturnableAsset(id)) return;
+        if (!grouped[id]) grouped[id] = { id, n: 0, value: 0, type: def.type };
+        grouped[id].n += n;
+        grouped[id].value += (def.value || 0) * n;
+      };
+      let skippedEmergencyPistol = false;
+      const skipEmergency = carried && carried.emergency;
+      for (const w of (player && Array.isArray(player.weapons) ? player.weapons : [])) {
+        if (!w || !w.id) continue;
+        if (skipEmergency && !skippedEmergencyPistol && w.id === 'w_pistol') {
+          skippedEmergencyPistol = true;
+          continue;
+        }
+        add(w.id, 1);
+      }
+      if (player && player.armor && player.armor.id && (!Number.isFinite(player.armor.durability) || player.armor.durability > 0)) add(player.armor.id, 1);
+      const reserve = player && player.reserve ? player.reserve : {};
+      const emergencyReserve = carried && carried.emergency && carried.reserve ? carried.reserve : {};
+      for (const cal in reserve) if (AMMO_ITEM[cal]) add(AMMO_ITEM[cal], Math.max(0, reserve[cal] - (emergencyReserve[cal] || 0)));
+      const bag = player && Array.isArray(player.backpack) ? player.backpack : [];
+      for (const s of bag) if (s && s.id) add(s.id, s.n);
+      return Object.keys(grouped).map(id => grouped[id]);
+    },
+
+    _isDemoReturnableAsset(id) {
+      const def = G.getItem(id);
+      if (!def) return false;
+      if (def.type === 'valuable') return false;
+      if (id === (G.DemoConfig && G.DemoConfig.scrollItemId)) return false;
+      if (id === (G.DemoConfig && G.DemoConfig.coinItemId)) return false;
+      return ['weapon', 'armor', 'ammo', 'med'].indexOf(def.type) >= 0;
+    },
+
+    _returnDemoAssetsToStash(items) {
+      const returned = [];
+      let sold = 0;
+      for (const item of items || []) {
+        if (!item || !item.id || !Number.isFinite(item.n) || item.n <= 0) continue;
+        const n = Math.floor(item.n);
+        const leftover = this.addItem(item.id, n);
+        const fit = n - leftover;
+        if (fit > 0) returned.push({ id: item.id, n: fit, value: (G.getItem(item.id).value || 0) * fit, type: G.getItem(item.id).type });
+        if (leftover > 0) sold += this.sellPrice(item.id) * leftover;
+      }
+      if (sold > 0) this.data.money += sold;
+      return { items: returned, sold };
     },
 
     // ---- stash ----
@@ -485,6 +551,14 @@
         emergency: true,
         phase39Preview: true,
       };
+    },
+
+    commitDemoRaidStart(loadout) {
+      const ld = loadout || this.data.loadout;
+      if (this.shouldUseEmergencyPistol(ld)) return this.emergencyPistolKit();
+      const carried = this.commitRaidStart(ld);
+      if (!carried.error) carried.assetsDeducted = true;
+      return carried;
     },
 
     // Free scav kit — never deducts; ensures player can always raid.
