@@ -138,10 +138,20 @@
       const tier = tierOverride || spawn.tier;
       const s = Object.assign({}, spawn, {
         tier,
+        role: spawn.role || this._enemyRoleForTier(tier, spawn),
         hpMultiplier: this._monsterHpMultiplier(),
         damageMultiplier: this._monsterDamageMultiplier(),
       });
       this.enemies.push(new G.Enemy(s));
+    },
+
+    _enemyRoleForTier(tier, spawn) {
+      if (!this.demo) return null;
+      if (spawn && spawn.room && spawn.room.pathIndex < 2) return null;
+      const cfg = G.DemoConfig || {};
+      if (tier === 'beast' && U.chance(cfg.roleRusherChance || 0)) return 'rusher';
+      if (tier === 'raider' && U.chance(cfg.roleMarksmanChance || 0)) return 'marksman';
+      return null;
     },
 
     // Pre-render the static world (floor/walls/grid) and prepare the incremental
@@ -1617,6 +1627,7 @@
         }
         // creature body (procedural). Sprites owns the per-tier visual scale;
         // ask it where the sprite's top is so overlays clear ears/horns/plates.
+        this._drawEnemyRoleWarning(ctx, e);
         G.Sprites.enemy(ctx, e);
         const top = G.Sprites.enemyTop(e);
         // hp bar if hurt
@@ -1656,6 +1667,34 @@
         ctx.lineWidth = 4;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 13, -Math.PI / 2, -Math.PI / 2 + U.TAU * frac); ctx.stroke();
       }
+    },
+
+    _drawEnemyRoleWarning(ctx, e) {
+      const action = e.roleAction;
+      if (!action) return;
+      ctx.save();
+      if (action.type === 'rusher' && action.phase === 'windup') {
+        const frac = U.clamp(action.t / action.total, 0, 1);
+        ctx.strokeStyle = '#ffb35a';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 4]);
+        ctx.lineDashOffset = -this.time * 28;
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.r + 9 + frac * 12, 0, U.TAU); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,120,70,0.20)';
+        ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.arc(e.x, e.y, 92, action.angle - 0.17, action.angle + 0.17); ctx.closePath(); ctx.fill();
+      } else if (action.type === 'aim') {
+        const frac = U.clamp(action.t / action.total, 0, 1);
+        ctx.globalAlpha = 0.30 + frac * 0.60;
+        ctx.strokeStyle = '#ff5a5a';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 5]);
+        ctx.lineDashOffset = -this.time * 36;
+        ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(action.tx, action.ty); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(action.tx, action.ty, 10 + frac * 8, 0, U.TAU); ctx.stroke();
+      }
+      ctx.restore();
     },
 
     _drawPlayerHealthBar(ctx, p) {

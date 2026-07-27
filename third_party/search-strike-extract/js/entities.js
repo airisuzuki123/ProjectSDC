@@ -415,6 +415,8 @@
     this.color = tier.color;
     this.accuracy = tier.accuracy;
     this.room = spawn.room;
+    this.role = spawn.role || null;
+    this.roleAction = null;
     this.dead = false;
 
     const wId = tier.melee ? null : U.choice(tier.weapons);
@@ -433,6 +435,7 @@
     this.lastKnown = null;       // {x,y}
     this.path = null; this.pathIdx = 0; this.pathTimer = 0;
     this.fireCd = U.rand(0, 0.4);
+    this.roleCooldown = 0;
     this.reactT = 0;
     this.strafeDir = U.chance(0.5) ? 1 : -1;
     this.strafeT = 0;
@@ -449,6 +452,7 @@
       if (this.dead) return;
       this.stateT += dt;
       this.fireCd = Math.max(0, this.fireCd - dt);
+      this.roleCooldown = Math.max(0, this.roleCooldown - dt);
       this.strafeT -= dt;
       if (this.reloadT > 0) { this.reloadT -= dt; if (this.reloadT <= 0) this.mag = this.wdef.mag; }
 
@@ -574,12 +578,18 @@
       const map = raid.map, player = raid.player;
       const speedMul = raid && raid._enemyMoveSpeedMultiplier ? raid._enemyMoveSpeedMultiplier() : 1;
       this.reactT = Math.max(0, this.reactT - dt);
+      const d = U.dist(this.x, this.y, player.x, player.y);
+      if (this.roleAction && this.roleAction.type === 'rusher' && this._updateRoleAction(dt, raid, player, d)) return;
       if (!this.canSee) {
         // lost sight: go investigate last known
+        if (this.roleAction && this.roleAction.type === 'aim') {
+          this.roleAction = null;
+          this.roleCooldown = (G.DemoConfig || {}).roleInterruptCooldown || 0.65;
+        }
         this.state = 'search'; this.stateT = 0; this.path = null; return;
       }
-      const d = U.dist(this.x, this.y, player.x, player.y);
       this.angle = U.angle(this.x, this.y, player.x, player.y);
+      if (this._updateRoleAction(dt, raid, player, d)) return;
       if (this.def.melee) {
         const range = this.def.meleeRange || 34;
         if (d > range * 0.85) {
@@ -611,6 +621,57 @@
         if (this.mag <= 0) { this.reloadT = this.wdef.reloadTime; return; }
         this._shoot(raid, player, d);
       }
+    },
+
+    _updateRoleAction(dt, raid, player, d) {
+      const cfg = G.DemoConfig || {};
+      const action = this.roleAction;
+      if (action) {
+        if (action.type === 'rusher') {
+          this.angle = action.angle;
+          action.t += dt;
+          if (action.phase === 'windup') {
+            if (action.t < action.total) return true;
+            action.phase = 'dash'; action.t = 0; action.total = cfg.roleRusherDuration || 0.32;
+            return true;
+          }
+          const moved = this._moveToward(this.x + Math.cos(action.angle) * 100, this.y + Math.sin(action.angle) * 100, cfg.roleRusherSpeed || 320, dt, raid.map);
+          if (!action.hit && U.dist(this.x, this.y, player.x, player.y) <= (this.def.meleeRange || 34) + 8) {
+            action.hit = true;
+            if (!raid._enemyFireSuppressed || !raid._enemyFireSuppressed()) {
+              player.takeDamage(Math.round((this.def.meleeDamage || 10) * this.damageMultiplier * (cfg.roleRusherDamageMultiplier || 1.3)), raid, this.x, this.y);
+            }
+          }
+          if (action.t >= action.total || moved < 0.1 || action.hit) {
+            this.roleAction = null;
+            this.roleCooldown = cfg.roleRusherCooldown || 2.0;
+          }
+          return true;
+        }
+        if (action.type === 'aim') {
+          if (!this.canSee) {
+            this.roleAction = null;
+            this.roleCooldown = cfg.roleInterruptCooldown || 0.65;
+            return false;
+          }
+          action.t += dt;
+          if (action.t < action.total) return true;
+          this.angle = U.angle(this.x, this.y, action.tx, action.ty);
+          this.roleAction = null;
+          if ((!raid._enemyFireSuppressed || !raid._enemyFireSuppressed()) && this.mag > 0 && this.reloadT <= 0) this._shoot(raid, player, U.dist(this.x, this.y, action.tx, action.ty));
+          return true;
+        }
+      }
+
+      if (this.role === 'rusher' && this.def.melee && this.roleCooldown <= 0 && d >= 70 && d <= 240 && this.reactT <= 0 && (!raid._enemyFireSuppressed || !raid._enemyFireSuppressed())) {
+        this.roleAction = { type: 'rusher', phase: 'windup', t: 0, total: cfg.roleRusherWindup || 0.65, angle: this.angle, hit: false };
+        return true;
+      }
+      if (this.role === 'marksman' && !this.def.melee && this.roleCooldown <= 0 && d >= 130 && d <= 420 && this.reactT <= 0 && this.fireCd <= 0 && this.reloadT <= 0 && this.mag > 0 && (!raid._enemyFireSuppressed || !raid._enemyFireSuppressed())) {
+        this.roleAction = { type: 'aim', t: 0, total: cfg.roleMarksmanAimTime || 0.70, tx: player.x, ty: player.y };
+        return true;
+      }
+      return false;
     },
 
     _search(dt, raid) {
@@ -650,6 +711,11 @@
 
     takeDamage(dmg, raid, fromX, fromY) {
       if (this.dead) return;
+      if (this.roleAction && (this.roleAction.phase === 'windup' || this.roleAction.type === 'aim')) {
+        this.roleAction = null;
+        this.roleCooldown = (G.DemoConfig || {}).roleInterruptCooldown || 0.65;
+        raid.floatText(this.x, this.y - 28, G.t('raid.float.roleInterrupted'), '#a6e7ff');
+      }
       let dmgLeft = dmg;
       if (this.armorDur > 0) {
         const def = G.getItem(this.armorId);
