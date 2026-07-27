@@ -218,6 +218,10 @@ button.nav.danger { border-color: var(--red); color: var(--red); }
 /* ---- overlay screens (pause / raid inventory) ---- */
 .overlay-screen { background: rgba(8,10,13,0.92); justify-content: center; align-items: center; }
 .pause-title { font-size: 30px; font-weight: 900; letter-spacing: 3px; text-align: center; }
+.pause-challenge { width: min(360px, 100%); margin-top: 4px; padding: 12px; border: 1px solid var(--line); background: var(--panel); }
+.pause-challenge-label { color: var(--dim); font-size: 11px; letter-spacing: 1px; }
+.pause-challenge-name { margin-top: 3px; font-weight: 800; }
+.pause-challenge-rules { margin-top: 5px; color: var(--gold); font-size: 12px; line-height: 1.45; }
 .pause-menu { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 360px; margin-top: 10px; }
 button.big { padding: 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font-family: inherit; font-weight: 800; font-size: 16px; letter-spacing: 1px; cursor: pointer; }
 button.big.primary { background: var(--accent2); color: #06110f; border-color: var(--accent2); }

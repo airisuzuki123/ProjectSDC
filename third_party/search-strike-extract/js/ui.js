@@ -92,6 +92,7 @@
       switch (this.screen) {
         case 'intro': return this.showIntro();
         case 'hub': return this.showHub();
+        case 'challenges': return this.showChallenges();
         case 'deploy': return this.showDeploy();
         case 'loadout': return this.selectedLocation ? this.showLoadout() : this.showHub();
         case 'stash': return this.showStash();
@@ -150,7 +151,7 @@
       const wrap = h('div', { class: 'screen hub' });
       wrap.appendChild(this.header(t('ui.brand.title'), t('ui.hub.subtitle')));
       const demoMenu = h('div', { class: 'mainmenu demo-hub-menu' }, [
-        bigBtn(t('ui.hub.menu.demo.title'), t('ui.hub.menu.demo.sub'), 'primary', () => this.host.startDemoRaid()),
+        bigBtn(t('ui.hub.menu.challenges.title'), t('ui.hub.menu.challenges.sub'), 'primary', () => this.showChallenges()),
         bigBtn(t('ui.hub.menu.settings.title'), t('ui.hub.menu.settings.sub'), 'secondary', () => this.showSettings()),
       ]);
       wrap.appendChild(demoMenu);
@@ -174,6 +175,26 @@
       ]);
       wrap.appendChild(menu);
       wrap.appendChild(h('div', { class: 'hint', text: t('ui.hub.tip') }));
+      this.root.appendChild(wrap);
+    },
+
+    /* --------------------------- CHALLENGES --------------------------- */
+    showChallenges() {
+      this.screen = 'challenges'; this.clear();
+      const wrap = h('div', { class: 'screen' });
+      wrap.appendChild(this.header(t('ui.challenges.header'), t('ui.challenges.sub')));
+      const grid = h('div', { class: 'loc-grid challenge-grid' });
+      for (const challenge of G.Challenges || []) {
+        const id = challenge.id;
+        grid.appendChild(h('div', { class: 'loc-card risk-2', onclick: () => this.host.startDemoRaid(id) }, [
+          h('div', { class: 'loc-name', text: t('challenge.' + id + '.name') }),
+          h('div', { class: 'loc-risk', text: t('ui.challenges.recommended', { min: challenge.recommendedMin, max: challenge.recommendedMax }) }),
+          h('div', { class: 'loc-desc', text: t('challenge.' + id + '.desc') }),
+          h('div', { class: 'loc-meta', text: t('challenge.' + id + '.rules') }),
+        ]));
+      }
+      wrap.appendChild(grid);
+      wrap.appendChild(navBtns([[t('ui.nav.back'), () => this.showHub()]]));
       this.root.appendChild(wrap);
     },
 
@@ -500,6 +521,7 @@
         [t('ui.results.eliminations'), result.kills],
         [t('ui.results.timeInRaid'), t('ui.results.timeValue', { m: Math.floor(result.time / 60), s: result.time % 60 })],
       ];
+      if (result.challengeId) lines.push([t('ui.results.challenge'), t('challenge.' + result.challengeId + '.name')]);
       if (result.paceTag) {
         lines.push([t('ui.results.pace'), t('ui.results.pace.' + result.paceTag, {
           min: Math.round((result.targetRunMinTime || 300) / 60),
@@ -571,6 +593,15 @@
       this.show(); this.clear();
       const wrap = h('div', { class: 'screen overlay-screen' });
       wrap.appendChild(h('div', { class: 'pause-title', text: t('ui.pause.title') }));
+      const challenge = raid.dungeon && raid.dungeon.challenge;
+      if (challenge) {
+        const prefix = 'challenge.' + challenge.id;
+        wrap.appendChild(h('div', { class: 'pause-challenge' }, [
+          h('div', { class: 'pause-challenge-label', text: t('ui.pause.challenge') }),
+          h('div', { class: 'pause-challenge-name', text: t(prefix + '.name') }),
+          h('div', { class: 'pause-challenge-rules', text: t(prefix + '.rules') }),
+        ]));
+      }
       const abandon = h('button', { class: 'big danger', text: t('ui.pause.abandon') });
       abandon.addEventListener('click', () => {
         if (abandon.dataset.c) { this.hideAll(); raid.abandon(); }

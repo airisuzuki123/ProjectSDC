@@ -183,7 +183,7 @@
   /* --------------------------- Generation ------------------------------- */
   const MapGen = {
     generate(loc, opts) {
-      if (opts && opts.demo) return generateDemoRoomMap(loc);
+      if (opts && opts.demo) return generateDemoRoomMap(loc, opts);
       const seed = (Math.random() * 1e9) | 0;
       const rng = G.RNG(seed);
       const W = loc.gridW, H = loc.gridH, T = Config.TILE;
@@ -373,16 +373,21 @@
     },
   };
 
-  function generateDemoRoomMap(loc) {
+  function generateDemoRoomMap(loc, opts) {
     const seed = (Math.random() * 1e9) | 0;
     const rng = G.RNG(seed);
     const T = Config.TILE;
     const cfg = G.DemoConfig || {};
+    const rules = (opts && opts.mapRules) || {};
+    const ruleValue = (key, fallback) => rules[key] == null ? fallback : rules[key];
     const roomW = cfg.roomTileW || 8, roomH = cfg.roomTileH || 7, gap = cfg.roomGap || 2, margin = 2;
-    const mainCount = rng.int(cfg.roomMainPathMin || 4, cfg.roomMainPathMax || 5);
-    const rewardMax = cfg.roomRewardMax || 2;
-    const rewardChance = cfg.roomRewardChance == null ? 0.7 : cfg.roomRewardChance;
-    const vertical = rng.chance(0.5);
+    const mainPathMin = Math.max(3, Math.floor(ruleValue('mainPathMin', cfg.roomMainPathMin || 4)));
+    const mainPathMax = Math.max(mainPathMin, Math.floor(ruleValue('mainPathMax', cfg.roomMainPathMax || 5)));
+    const mainCount = rng.int(mainPathMin, mainPathMax);
+    const rewardMax = Math.max(0, Math.floor(ruleValue('rewardMax', cfg.roomRewardMax == null ? 2 : cfg.roomRewardMax)));
+    const rewardChance = U.clamp(ruleValue('rewardChance', cfg.roomRewardChance == null ? 0.7 : cfg.roomRewardChance), 0, 1);
+    const orientation = ruleValue('orientation', 'random');
+    const vertical = orientation === 'vertical' ? true : orientation === 'horizontal' ? false : rng.chance(0.5);
     const roomCells = [];
     for (let i = 0; i < mainCount; i++) {
       roomCells.push({
@@ -560,6 +565,8 @@
       roomGraph: {
         layout: 'isaac_chain',
         orientation: vertical ? 'vertical' : 'horizontal',
+        challengeId: opts && opts.challengeId,
+        mapRules: { mainPathMin, mainPathMax, rewardChance, rewardMax, orientation },
         mainRoomIds: mainRooms.map(r => r.id),
         rewardRoomId: rewardRooms[0] && rewardRooms[0].id,
         rewardRoomIds: rewardRooms.map(r => r.id),

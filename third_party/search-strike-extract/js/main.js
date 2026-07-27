@@ -94,11 +94,12 @@
       G.Audio.startAmbient(loc && loc.id);   // per-scene background ambience
     },
 
-    startDemoRaid() {
+    startDemoRaid(challengeId) {
       const cfg = G.DemoConfig || {};
       const loc = G.Locations.find(l => l.id === cfg.locationId) || G.Locations[0];
       const carried = G.Profile.scavKit();
       carried.demo = true;
+      carried.challengeId = challengeId || null;
       this.startRaid(loc, carried);
     },
 

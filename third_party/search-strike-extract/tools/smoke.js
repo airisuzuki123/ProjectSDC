@@ -163,6 +163,30 @@ ok('demo pace reference does not force MIA, while regular raids retain their tim
   regular.update(1 / 60, 800, 600);
   if (!regular.result || regular.result.outcome !== 'mia') throw new Error('regular raid timer no longer settles as MIA');
 });
+ok('challenge definitions apply modifiers and settle with identity', () => {
+  const expected = ['rising_tide', 'elite_hunt', 'scarce_escape'];
+  if (!G.Challenges || G.Challenges.length !== expected.length) throw new Error('challenge registry is incomplete');
+  for (const id of expected) {
+    const carried = G.Profile.scavKit();
+    carried.demo = true;
+    carried.challengeId = id;
+    const raid = new G.Raid(G.Locations[0], carried);
+    if (!raid.dungeon.challenge || raid.dungeon.challenge.id !== id) throw new Error('challenge context missing: ' + id);
+    const rules = raid.dungeon.challenge.mapRules;
+    const graph = raid.map.roomGraph;
+    if (!graph || graph.challengeId !== id) throw new Error('challenge map context missing: ' + id);
+    if (graph.mainRoomIds.length < rules.mainPathMin || graph.mainRoomIds.length > rules.mainPathMax) throw new Error('challenge main path rule missing: ' + id);
+    if ((graph.rewardRoomIds || []).length > rules.rewardMax) throw new Error('challenge reward cap missing: ' + id);
+    if (rules.orientation && graph.orientation !== rules.orientation) throw new Error('challenge orientation rule missing: ' + id);
+    if (rules.rewardChance === 0 && graph.rewardRoomIds.length !== 0) throw new Error('zero-reward challenge created a detour: ' + id);
+    if (rules.rewardChance === 1 && graph.rewardRoomIds.length !== rules.rewardMax) throw new Error('guaranteed reward challenge missed a detour: ' + id);
+    if (id === 'rising_tide' && raid._monsterLevelInterval() !== G.DemoConfig.monsterLevelInterval - 15) throw new Error('rising tide modifier missing');
+    if (id === 'elite_hunt' && raid._curseModifier('eliteSpawnChanceMultiplier', 1) !== 1.8) throw new Error('elite hunt modifier missing');
+    if (id === 'scarce_escape' && raid._curseModifier('scrollDropMultiplier', 1) !== 0.72) throw new Error('scarce escape modifier missing');
+    raid._finish('normal_extract');
+    if (!raid.result || raid.result.challengeId !== id) throw new Error('challenge identity missing from settlement: ' + id);
+  }
+});
 ok('demo HUD does not render a countdown', () => {
   const demo = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
   demo.enemies = [];
@@ -1084,6 +1108,7 @@ ok('all UI screens & overlays render', () => {
   G.UI.init(host);
   G.UI.showIntro();
   G.UI.showHub();
+  G.UI.showChallenges();
   G.UI.showDeploy();
   G.UI.selectedLocation = G.Locations[0];
   G.UI.showLoadout();
@@ -1096,7 +1121,7 @@ ok('all UI screens & overlays render', () => {
   G.UI.showResults({ outcome: 'death', kills: 1, time: 40, lootValue: 300, items: 2, scav: true }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'normal_extract', kills: 2, time: 80, lootValue: 450, items: 3, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'normal_extract', kills: 2, time: 80, lootValue: 608, baseLootValue: 450, rewardMultiplier: 1.35, items: 3, baseItems: 3, scav: true, scrollFragments: 4, requiredFragments: 4 }, { carriedValue: 0 });
-  G.UI.showResults({ outcome: 'perfect_extract', kills: 4, time: 360, lootValue: 900, baseLootValue: 600, rewardMultiplier: 1.5, perfectRewardMultiplier: 1.5, items: 4, baseItems: 4, scav: true, scrollFragments: 4, requiredFragments: 4, paceTag: 'target', targetRunMinTime: 300, targetRunMaxTime: 480, playtestMetrics: { roomsEntered: 5, rewardRoomsEntered: 1, resourcesSearched: 4, paidPortalsOpened: 1, goldSpent: 3, goldCollected: 5, choicesTaken: 2, cursesTaken: 1, skillsTaken: 1 } }, { carriedValue: 0 });
+  G.UI.showResults({ outcome: 'perfect_extract', kills: 4, time: 360, lootValue: 900, baseLootValue: 600, rewardMultiplier: 1.5, perfectRewardMultiplier: 1.5, items: 4, baseItems: 4, scav: true, challengeId: 'rising_tide', scrollFragments: 4, requiredFragments: 4, paceTag: 'target', targetRunMinTime: 300, targetRunMaxTime: 480, playtestMetrics: { roomsEntered: 5, rewardRoomsEntered: 1, resourcesSearched: 4, paidPortalsOpened: 1, goldSpent: 3, goldCollected: 5, choicesTaken: 2, cursesTaken: 1, skillsTaken: 1 } }, { carriedValue: 0 });
   G.UI.showResults({ outcome: 'failed', kills: 2, time: 80, lootValue: 0, lostLootValue: 450, items: 0, scav: true, scrollFragments: 2, requiredFragments: 4 }, { carriedValue: 0 });
   const fakeRaid = new G.Raid(G.Locations[0], G.Profile.scavKit());
   G.UI.openPause(fakeRaid);
@@ -1106,22 +1131,32 @@ ok('all UI screens & overlays render', () => {
   demoRaid.dungeon.cursePending = true;
   G.UI.openCurseChoice(demoRaid);
 });
-ok('hub shows only demo and settings entry points', () => {
+ok('hub shows only challenge and settings entry points', () => {
   const host = { startRaid() {}, startDemoRaid() {}, toHub() {}, };
   G.UI.init(host);
   G.UI.showHub();
   const text = collectDomText(G.UI.root);
   const buttons = collectByClass(G.UI.root, 'menu-btn');
   const stats = collectByClass(G.UI.root, 'statstrip');
-  if (buttons.length !== 2) throw new Error('hub should expose exactly demo and settings buttons');
+  if (buttons.length !== 2) throw new Error('hub should expose exactly challenge and settings buttons');
   if (stats.length !== 0) throw new Error('hub stats strip should be hidden');
   const hiddenKeys = ['ui.hub.menu.deploy.title', 'ui.hub.menu.stash.title', 'ui.hub.menu.trader.title', 'ui.hub.menu.contracts.title'];
   for (const key of hiddenKeys) {
     const label = G.t(key);
     if (label && label !== key && text.indexOf(label) >= 0) throw new Error('hub still shows hidden entry: ' + key);
   }
-  if (text.indexOf(G.t('ui.hub.menu.demo.title')) < 0) throw new Error('demo entry missing from hub');
+  if (text.indexOf(G.t('ui.hub.menu.challenges.title')) < 0) throw new Error('challenge entry missing from hub');
   if (text.indexOf(G.t('ui.hub.menu.settings.title')) < 0) throw new Error('settings entry missing from hub');
+});
+ok('pause screen repeats the active challenge rule summary', () => {
+  const host = { startRaid() {}, startDemoRaid() {}, toHub() {} };
+  G.UI.init(host);
+  const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true, challengeId: 'elite_hunt' }));
+  G.UI.openPause(raid);
+  const text = collectDomText(G.UI.root);
+  if (text.indexOf(G.t('ui.pause.challenge')) < 0) throw new Error('pause challenge label missing');
+  if (text.indexOf(G.t('challenge.elite_hunt.name')) < 0) throw new Error('pause challenge name missing');
+  if (text.indexOf(G.t('challenge.elite_hunt.rules')) < 0) throw new Error('pause challenge rules missing');
 });
 
 console.log('\n[7] Stress: many raids back-to-back (mem/refs)');
@@ -1255,7 +1290,7 @@ ok('i18n: a full raid + all UI screens render in Chinese without error', () => {
   G.Profile.setLang('zh');
   // UI screens in zh
   G.UI.init({ startRaid() {}, toHub() {} });
-  G.UI.showIntro(); G.UI.showHub(); G.UI.showDeploy();
+  G.UI.showIntro(); G.UI.showHub(); G.UI.showChallenges(); G.UI.showDeploy();
   G.UI.selectedLocation = G.Locations[1]; G.UI.showLoadout();
   G.UI.showStash(); G.UI.showTrader('buy'); G.UI.showTrader('sell'); G.UI.showSettings();
   G.UI.showResults({ outcome: 'extract', kills: 2, time: 80, lootValue: 900, items: 4, scav: false }, { carriedValue: 500, extract: { sold: 120, scav: false } });
@@ -1386,6 +1421,9 @@ ok('healing permits movement but blocks shooting', () => {
 });
 ok('search continues while firing and does not block bullets', () => {
   const raid = new G.Raid(G.Locations[0], G.Profile.scavKit());
+  raid.enemies = [];
+  raid.player.weapons[0] = { id: 'w_pistol', mag: 8 };
+  raid.player.slot = 0;
   raid.player.reserve['9mm'] = 99;
   const c = raid.map.containers.find(c => c.items.length);
   raid.player.x = c.x; raid.player.y = c.y;
@@ -1395,7 +1433,8 @@ ok('search continues while firing and does not block bullets', () => {
   raid.player.tryShoot(raid);
   if (!raid.player.searching) throw new Error('shooting directly canceled the search');
   if (raid.bullets.length <= bulletsBefore) throw new Error('searching blocked bullet release');
-  G.Input.keys.clear(); G.Input._pressed.clear();
+  G.Input.resetTouch(); G.Input.touchEnabled = false;
+  G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.x = 400; G.Input.mouse.y = 300;
   raid.player.fireCd = 0;
   const inputBulletsBefore = raid.bullets.length;
   G.Input.mouse.down = true; // fire

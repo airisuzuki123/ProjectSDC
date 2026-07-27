@@ -24,7 +24,12 @@
     this.location = location;
     this.scav = !!carried.scav;
     this.demo = !!carried.demo;
-    this.map = G.MapGen.generate(location, { demo: this.demo });
+    this.challenge = this.demo && carried.challengeId && G.getChallenge ? G.getChallenge(carried.challengeId) : null;
+    this.map = G.MapGen.generate(location, {
+      demo: this.demo,
+      challengeId: this.challenge && this.challenge.id,
+      mapRules: this.challenge && this.challenge.mapRules,
+    });
     this.cam = new G.Camera();
     this.particles = new G.Particles();
     this.bullets = [];
@@ -52,6 +57,7 @@
       rewardMultiplier: 1,
       selectedCurses: [],
       selectedSkills: [],
+      challenge: this.challenge,
       curseChoices: [],
       cursePending: false,
       curseTriggers: 0,
@@ -89,6 +95,7 @@
     this.onCurseChoice = function () {};
 
     this._buildPlayer(carried);
+    if (this.dungeon) this._recomputeCurseModifiers();
     this._spawnEnemies();
     this._buildCaches();
     this.cam.x = this.player.x; this.cam.y = this.player.y;
@@ -634,9 +641,12 @@
       const m = defaultCurseModifiers();
       const selected = (d.selectedCurses || []).map(id => ({ id, pool: G.DemoCurses || [] }))
         .concat((d.selectedSkills || []).map(id => ({ id, pool: G.DemoSkills || [] })));
-      for (const entry of selected) {
-        const c = entry.pool.find(x => x.id === entry.id);
-        const e = c && c.effects;
+      const effectSets = selected.map(entry => {
+        const source = entry.pool.find(x => x.id === entry.id);
+        return source && source.effects;
+      });
+      if (d.challenge && d.challenge.modifiers) effectSets.push(d.challenge.modifiers);
+      for (const e of effectSets) {
         if (!e) continue;
         m.searchSpeedMultiplier *= e.searchSpeedMultiplier || 1;
         m.monsterSpawnIntervalMultiplier *= e.monsterSpawnIntervalMultiplier || 1;
@@ -1247,6 +1257,7 @@
         items: failed ? 0 : baseItems,
         time: Math.round(this.time), scav: this.scav,
         locId: this.location && this.location.id,   // for contract counters
+        challengeId: this.dungeon && this.dungeon.challenge ? this.dungeon.challenge.id : undefined,
         killsByTier: this.killsByTier,
         scrollFragments: this.dungeon ? this.dungeon.scrollFragments : undefined,
         requiredFragments: this.dungeon ? this.dungeon.requiredFragments : undefined,

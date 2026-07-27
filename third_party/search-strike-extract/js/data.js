@@ -105,6 +105,27 @@
     enrageSpawnIntervalMultiplier: 0.65,
   };
 
+  // Phase 31 challenge definitions reuse the Demo systems without creating a
+  // separate gameplay path or any persistent progression state.
+  G.Challenges = [
+    {
+      id: 'rising_tide', recommendedMin: 5, recommendedMax: 8,
+      mapRules: { layout: 'chain', orientation: 'vertical', mainPathMin: 5, mainPathMax: 5, rewardChance: 0.5, rewardMax: 1 },
+      modifiers: { monsterLevelIntervalDelta: -15, monsterSpawnIntervalMultiplier: 0.85 },
+    },
+    {
+      id: 'elite_hunt', recommendedMin: 4, recommendedMax: 7,
+      mapRules: { layout: 'chain', orientation: 'horizontal', mainPathMin: 4, mainPathMax: 4, rewardChance: 1, rewardMax: 2 },
+      modifiers: { eliteSpawnChanceMultiplier: 1.8, eliteDropMultiplier: 1.25 },
+    },
+    {
+      id: 'scarce_escape', recommendedMin: 5, recommendedMax: 8,
+      mapRules: { layout: 'chain', mainPathMin: 4, mainPathMax: 4, rewardChance: 0, rewardMax: 0 },
+      modifiers: { scrollDropMultiplier: 0.72, searchSpeedMultiplier: 0.85 },
+    },
+  ];
+  G.getChallenge = function (id) { return (G.Challenges || []).find(c => c.id === id) || null; };
+
   G.DemoLootDrops = [
     { id: 'v_canned', w: 10, qty: [1, 2] },
     { id: 'v_water', w: 10, qty: [1, 2] },
