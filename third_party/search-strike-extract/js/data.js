@@ -95,6 +95,10 @@
     roleMarksmanAimTime: 0.70,
     roleInterruptCooldown: 0.65,
     coinItemId: 'd_gold_coin',
+    normalLootDropChance: 0.65,
+    normalGoldDrop: [1, 1],
+    eliteGoldDrop: [1, 2],
+    eliteLootRolls: 1,
     coinPortalBaseCost: 3,
     coinPortalPayInterval: 0.18,
     coinPortalFlyTime: 0.42,
@@ -151,16 +155,20 @@
   G.getChallenge = function (id) { return (G.Challenges || []).find(c => c.id === id) || null; };
 
   G.DemoLootDrops = [
-    { id: 'v_canned', w: 10, qty: [1, 2] },
-    { id: 'v_water', w: 10, qty: [1, 2] },
-    { id: 'v_tools', w: 8, qty: [1, 2] },
+    { id: 'v_canned', w: 10, qty: [1, 1] },
+    { id: 'v_water', w: 10, qty: [1, 1] },
+    { id: 'v_tools', w: 8, qty: [1, 1] },
     { id: 'v_phone', w: 8, qty: [1, 1] },
-    { id: 'v_cash', w: 8, qty: [1, 3] },
+    { id: 'v_cash', w: 8, qty: [1, 1] },
     { id: 'v_chain', w: 6, qty: [1, 1] },
     { id: 'm_bandage', w: 5, qty: [1, 1] },
     { id: 'v_watch', w: 4, qty: [1, 1] },
     { id: 'v_doc', w: 4, qty: [1, 1] },
+    { id: 'v_radio', w: 3, qty: [1, 1] },
+    { id: 'v_lens', w: 2, qty: [1, 1] },
+    { id: 'v_vase', w: 2, qty: [1, 1] },
     { id: 'v_gpu', w: 2, qty: [1, 1] },
+    { id: 'v_server', w: 1, qty: [1, 1] },
     { id: 'v_bitcoin', w: 1, qty: [1, 1] },
     { id: 'd_scroll_fragment', w: 4, qty: [1, 1] },
   ];
@@ -341,7 +349,11 @@
   def({ id: 'v_meds', name: 'Drug Vials', type: 'valuable', value: 130, rarity: 'uncommon', color: '#c060d0', stack: 10, slotCost: 1, gridW: 1, gridH: 1 });
   def({ id: 'v_tools', name: 'Tool Set', type: 'valuable', value: 75, rarity: 'common', color: '#c08040', stack: 8, slotCost: 1, gridW: 2, gridH: 1 });
   def({ id: 'v_doc', name: 'Secure Docs', type: 'valuable', value: 320, rarity: 'rare', color: '#d0d040', stack: 6, slotCost: 2, gridW: 2, gridH: 1 });
+  def({ id: 'v_radio', name: 'Field Radio', type: 'valuable', value: 210, rarity: 'uncommon', color: '#6a9db4', stack: 4, slotCost: 2, gridW: 2, gridH: 1 });
+  def({ id: 'v_lens', name: 'Long Lens', type: 'valuable', value: 290, rarity: 'rare', color: '#9476b9', stack: 3, slotCost: 3, gridW: 3, gridH: 1 });
+  def({ id: 'v_vase', name: 'Antique Vase', type: 'valuable', value: 460, rarity: 'rare', color: '#b2704c', stack: 2, slotCost: 4, gridW: 2, gridH: 2 });
   def({ id: 'v_bitcoin', name: 'Physical Bitcoin', type: 'valuable', value: 900, rarity: 'epic', color: '#f7931a', stack: 2, slotCost: 3, gridW: 1, gridH: 2 });
+  def({ id: 'v_server', name: 'Server Chassis', type: 'valuable', value: 780, rarity: 'epic', color: '#4b9b83', stack: 1, slotCost: 6, gridW: 3, gridH: 2 });
   def({ id: 'v_canned', name: 'Canned Food', type: 'valuable', value: 35, rarity: 'common', color: '#9aa055', stack: 12, slotCost: 1, gridW: 1, gridH: 1 });
   def({ id: 'v_water', name: 'Water Bottle', type: 'valuable', value: 28, rarity: 'common', color: '#5ab0d0', stack: 12, slotCost: 1, gridW: 1, gridH: 2 });
   def({ id: 'd_scroll_fragment', name: 'Extraction Scroll Fragment', type: 'key', value: 0, rarity: 'rare', color: '#8fd6ff', stack: 99, gridW: 1, gridH: 1 });

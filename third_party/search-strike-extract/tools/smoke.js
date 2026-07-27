@@ -562,12 +562,22 @@ ok('demo active perfect extract survives leaving the green zone', () => {
   const raid = new G.Raid(G.Locations[0], carried);
   raid.enemies = [];
   const z = raid.map.extracts[0];
+  const extractRoom = raid._roomAt(z.x, z.y);
+  const portal = raid.map.portals.find(p => p.fromRoomId === extractRoom.id);
+  const extractState = raid._roomState(extractRoom.id);
+  extractState.started = true;
+  extractState.cleared = true;
+  if (!portal || !raid._roomPortalsOpen(extractRoom.id)) throw new Error('extract room portal should be open before the challenge');
   raid.player.x = z.x; raid.player.y = z.y; raid.player.moving = false;
   raid._updateExtract(G.DemoConfig.perfectExtractArmTime + 0.1);
   if (!raid.dungeon.extractionChallenge || raid.dungeon.extractionChallenge.phase !== 'active') throw new Error('perfect extract did not activate after standing still');
+  if (raid._roomPortalsOpen(extractRoom.id)) throw new Error('perfect extract did not lock portals');
   raid.player.x = z.x + z.r + 140;
   raid._updateExtract(0.1);
   if (!raid.dungeon.extractionChallenge || raid.dungeon.extractionChallenge.phase !== 'active') throw new Error('active perfect extract was cancelled after leaving zone');
+  raid.player.x = portal.x; raid.player.y = portal.y;
+  raid._updatePortals(1);
+  if (raid._roomAt(raid.player.x, raid.player.y).id !== extractRoom.id) throw new Error('active perfect extract allowed portal escape');
 });
 ok('demo normal portal immediately moves player to target room', () => {
   const carried = G.Profile.scavKit();
@@ -1118,6 +1128,25 @@ ok('demo in-raid backpack supports explicit grid placement', () => {
   if (!s || s.x !== 3 || s.y !== 2 || s.w !== 2 || s.h !== 1) throw new Error('grid placement shape/position wrong');
   if (G.UI._moveBackpackItemToCell(raid, 0, 7, 5)) throw new Error('oversized item moved out of bounds');
 });
+ok('nearby loot previews use the same grid footprint as backpack items', () => {
+  const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
+  raid.groundItems = [
+    { x: raid.player.x + 20, y: raid.player.y, id: 'v_vase', n: 1, pop: 0, delay: 0, bob: 0 },
+    { x: raid.player.x + 20, y: raid.player.y, id: 'v_lens', n: 1, pop: 0, delay: 0, bob: 0 },
+    { x: raid.player.x + 20, y: raid.player.y, id: 'v_server', n: 1, pop: 0, delay: 0, bob: 0 },
+  ];
+  G.UI.init({ startRaid() {}, startDemoRaid() {}, toHub() {} });
+  G.UI.openRaidInventory(raid);
+  const grid = collectByClass(G.UI.root, 'loot-grid-occupancy')[0];
+  if (!grid) throw new Error('nearby loot occupancy grid missing');
+  const items = collectByClass(grid, 'loot-item');
+  const find = (id) => items.find(item => item.dataset.itemId === id);
+  const hasFootprint = (id, footprint) => {
+    const tile = find(id);
+    return tile && String(tile.getAttribute('style')).indexOf(footprint) >= 0;
+  };
+  if (!hasFootprint('v_vase', 'grid-column:span 2;grid-row:span 2') || !hasFootprint('v_lens', 'grid-column:span 3;grid-row:span 1') || !hasFootprint('v_server', 'grid-column:span 3;grid-row:span 2')) throw new Error('nearby loot footprint does not match item grid size');
+});
 ok('demo searched resources drop overflow loot at the resource point', () => {
   const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
   raid.player.backpack = [];
@@ -1136,18 +1165,35 @@ ok('rare and epic ground loot have quality beam colors', () => {
   if (raid._groundQualityBeamColor({ id: 'v_doc' }) !== G.RARITY_COLOR.rare) throw new Error('rare beam color missing');
   if (raid._groundQualityBeamColor({ id: 'v_gpu' }) !== G.RARITY_COLOR.epic) throw new Error('epic beam color missing');
 });
-ok('demo monster drops use test loot pool without ammo', () => {
+ok('demo monster drops use compact loot rules and varied item footprints', () => {
   const slotCosts = new Set((G.DemoLootDrops || []).map(row => {
     const def = G.getItem(row.id);
     return def && def.type !== 'key' ? (def.slotCost || 1) : null;
   }).filter(Boolean));
-  for (const n of [1, 2, 3]) if (!slotCosts.has(n)) throw new Error('demo loot pool missing ' + n + '-slot item');
+  for (const n of [1, 2, 3, 4, 6]) if (!slotCosts.has(n)) throw new Error('demo loot pool missing ' + n + '-slot item');
+  const footprints = new Set((G.DemoLootDrops || []).map(row => {
+    const def = G.getItem(row.id);
+    return def && def.type === 'valuable' ? def.gridW + 'x' + def.gridH : null;
+  }).filter(Boolean));
+  for (const shape of ['1x1', '1x2', '2x1', '2x2', '3x1', '3x2']) if (!footprints.has(shape)) throw new Error('demo loot pool missing ' + shape + ' footprint');
+  if ((G.DemoLootDrops || []).some(row => row.qty[0] !== 1 || row.qty[1] !== 1)) throw new Error('demo loot should always drop individual items');
   if ((G.DemoLootDrops || []).some(row => G.getItem(row.id).type === 'ammo')) throw new Error('demo loot pool contains ammo');
   const raid = new G.Raid(G.Locations[0], Object.assign(G.Profile.scavKit(), { demo: true }));
-  raid.groundItems = [];
-  const e = new G.Enemy({ x: raid.player.x + 100, y: raid.player.y, tier: 'scav', room: null });
-  e.takeDamage(999, raid, raid.player.x, raid.player.y);
-  if (raid.groundItems.some(g => G.getItem(g.id).type === 'ammo')) throw new Error('demo monster dropped ammo');
+  const chance = G.Utils.chance;
+  try {
+    G.Utils.chance = () => false;
+    raid.groundItems = [];
+    const scav = new G.Enemy({ x: raid.player.x + 100, y: raid.player.y, tier: 'scav', room: null });
+    scav.takeDamage(999, raid, raid.player.x, raid.player.y);
+    if (raid.groundItems.length !== 1 || raid.groundItems[0].id !== G.DemoConfig.coinItemId || raid.groundItems[0].n !== 1) throw new Error('ordinary demo enemy drop count should be reduced');
+    raid.groundItems = [];
+    const raider = new G.Enemy({ x: raid.player.x + 100, y: raid.player.y, tier: 'raider', room: null });
+    raider.takeDamage(999, raid, raid.player.x, raid.player.y);
+    if (raid.groundItems.length !== 2 || raid.groundItems.some(g => G.getItem(g.id).type === 'ammo')) throw new Error('elite demo enemy should drop one loot item plus gold');
+    if (!raid.groundItems.some(g => g.id !== G.DemoConfig.coinItemId && g.n === 1)) throw new Error('elite demo item drop should be singular');
+  } finally {
+    G.Utils.chance = chance;
+  }
 });
 ok('demo debug hotkeys cover validation shortcuts', () => {
   const press = (raid, key) => {

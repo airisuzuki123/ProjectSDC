@@ -731,7 +731,7 @@
       bagPane.appendChild(inspector);
 
       const lootPane = h('div', { class: 'raid-inv-pane loot-pane' }, h('div', { class: 'raid-inv-pane-title', text: t('ui.inv.nearbyLoot') }));
-      const lootGrid = h('div', { class: 'item-grid raid-inv-grid loot-grid' });
+      const lootGrid = h('div', { class: 'raid-inv-grid loot-grid-occupancy', style: '--loot-cols:' + cols + ';' });
       lootGrid.addEventListener('dragover', (e) => e.preventDefault());
       lootGrid.addEventListener('drop', (e) => {
         e.preventDefault();
@@ -742,14 +742,14 @@
       for (const entry of nearbyLoot) {
         const g = entry.item;
         const sz = G.itemGridSize ? G.itemGridSize(g.id) : { w: 1, h: 1 };
-        const def = { slotCost: (sz.w * sz.h) / Math.max(1, g.n) };
-        const tile = itemTile(g.id, g.n, {
-          tag: t('ui.inv.slotCost', { n: (def.slotCost || 1) * g.n }) + ' · ' + t('ui.inv.tag.pickup'),
-          onclick: () => { this._moveGroundToBackpack(raid, entry.index); this.openRaidInventory(raid); },
-        });
+        const tile = itemTile(g.id, g.n, { onclick: () => { this._moveGroundToBackpack(raid, entry.index); this.openRaidInventory(raid); } });
         tile.setAttribute('draggable', 'true');
+        tile.className += ' loot-item';
+        tile.setAttribute('style', (tile.getAttribute('style') || '') + ';grid-column:span ' + sz.w + ';grid-row:span ' + sz.h + ';');
+        tile.setAttribute('title', iname(g.id) + ' · ' + t('ui.inv.slotCost', { n: sz.w * sz.h }) + ' · ' + t('ui.inv.tag.pickup'));
         tile.dataset.from = 'ground';
         tile.dataset.index = String(entry.index);
+        tile.dataset.itemId = g.id;
         tile.addEventListener('dragstart', (e) => setDragData(e, { from: 'ground', index: entry.index }));
         lootGrid.appendChild(tile);
       }

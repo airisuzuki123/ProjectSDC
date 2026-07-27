@@ -1041,9 +1041,14 @@
       }
     },
 
+    _perfectExtractActive() {
+      const ch = this.demo && this.dungeon && this.dungeon.extractionChallenge;
+      return !!(ch && ch.phase === 'active');
+    },
+
     _roomPortalsOpen(roomId) {
       const st = this._roomState(roomId);
-      return !!st.cleared;
+      return !!st.cleared && !this._perfectExtractActive();
     },
 
     _updateGoldPortalPayment(portal, dt) {
@@ -1200,9 +1205,12 @@
       const scatter = () => U.rand(-14, 14);
       const drop = (id, n) => this.groundItems.push({ x: e.x + scatter(), y: e.y + scatter(), id, n, pop: 0.3, delay: 0.25, bob: Math.random() * 6 });
       if (this.demo && this.dungeon) {
-        drop((G.DemoConfig && G.DemoConfig.coinItemId) || 'd_gold_coin', e.tier === 'raider' || e.tier === 'boss' ? U.randInt(2, 3) : U.randInt(1, 2));
+        const cfg = G.DemoConfig || {};
+        const elite = e.tier === 'raider' || e.tier === 'boss';
+        const goldRange = elite ? (cfg.eliteGoldDrop || [1, 2]) : (cfg.normalGoldDrop || [1, 1]);
+        drop(cfg.coinItemId || 'd_gold_coin', U.randInt(goldRange[0], goldRange[1]));
         const table = (G.DemoRandomPools && G.DemoRandomPools.lootDrops) || G.DemoLootDrops || [];
-        const rolls = e.tier === 'raider' || e.tier === 'boss' ? 2 : 1;
+        const rolls = elite ? (cfg.eliteLootRolls || 1) : (U.chance(cfg.normalLootDropChance == null ? 0.65 : cfg.normalLootDropChance) ? 1 : 0);
         for (let i = 0; i < rolls && table.length; i++) {
           const pick = this._weightedDungeonDrop(table);
           drop(pick.id, U.randInt(pick.qty[0], pick.qty[1]));
