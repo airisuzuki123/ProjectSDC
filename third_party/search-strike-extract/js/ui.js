@@ -149,11 +149,17 @@
       const sr = st.raids ? Math.round(st.survived / st.raids * 100) : 0;
       const wrap = h('div', { class: 'screen hub' });
       wrap.appendChild(this.header(t('ui.brand.title'), t('ui.hub.subtitle')));
-      const demoMenu = h('div', { class: 'mainmenu demo-hub-menu' }, [
-        bigBtn(t('ui.hub.menu.challenges.title'), t('ui.hub.menu.challenges.sub'), 'primary', () => this.host.startDemoRaid()),
+      const progress = G.Profile.demoProgress ? G.Profile.demoProgress() : null;
+      wrap.appendChild(h('div', { class: 'level-head' }, [
+        h('div', { class: 'level-head-title', text: t('ui.levels.header') }),
+        h('div', { class: 'level-head-sub', text: t('ui.levels.progress', { n: progress ? progress.highestUnlockedLevel : 1, total: (G.DemoLevels || []).length }) }),
+      ]));
+      const levelGrid = h('div', { class: 'level-grid' });
+      for (const level of G.DemoLevels || []) levelGrid.appendChild(this._levelCard(level, progress));
+      wrap.appendChild(levelGrid);
+      wrap.appendChild(h('div', { class: 'mainmenu demo-settings-menu' }, [
         bigBtn(t('ui.hub.menu.settings.title'), t('ui.hub.menu.settings.sub'), 'secondary', () => this.showSettings()),
-      ]);
-      wrap.appendChild(demoMenu);
+      ]));
       wrap.appendChild(h('div', { class: 'hint demo-hub-hint', text: t('ui.hub.tip') }));
       this.root.appendChild(wrap);
       return;
@@ -175,6 +181,35 @@
       wrap.appendChild(menu);
       wrap.appendChild(h('div', { class: 'hint', text: t('ui.hub.tip') }));
       this.root.appendChild(wrap);
+    },
+
+    _levelCard(level, progress) {
+      const row = progress && progress.levels ? progress.levels[level.id] : null;
+      const unlocked = !!(row && row.unlocked);
+      const complete = !!(row && row.completed);
+      const cls = 'level-card ' + (unlocked ? 'unlocked' : 'locked') + (complete ? ' complete' : '');
+      const badgeKey = complete ? 'ui.levels.status.complete' : unlocked ? 'ui.levels.status.open' : 'ui.levels.status.locked';
+      const meta = t('ui.levels.rooms', { n: level.regularRoomCount }) + ' · ' + t('ui.levels.challengePool', { n: (level.challengePool || []).length });
+      const stats = row
+        ? t('ui.levels.stats', { attempts: row.attempts || 0, normal: row.normalExtracts || 0, perfect: row.perfectExtracts || 0 })
+        : t('ui.levels.lockReason', { n: Math.max(1, level.order - 1) });
+      const card = h('button', { class: cls }, [
+        h('div', { class: 'level-card-top' }, [
+          h('div', { class: 'level-order', text: t('ui.levels.order', { n: level.order }) }),
+          h('div', { class: 'level-badge', text: t(badgeKey) }),
+        ]),
+        h('div', { class: 'level-name', text: t('level.' + level.id + '.name') }),
+        h('div', { class: 'level-desc', text: t('level.' + level.id + '.desc') }),
+        h('div', { class: 'level-meta', text: meta }),
+        h('div', { class: 'level-stats', text: unlocked ? stats : t('ui.levels.lockReason', { n: Math.max(1, level.order - 1) }) }),
+      ]);
+      if (!unlocked) card.disabled = true;
+      card.addEventListener('click', () => {
+        if (!unlocked) { this.toast(t('toast.level_locked')); return; }
+        const res = this.host.startDemoRaid({ levelId: level.id });
+        if (res && res.error) this.toast(res.error);
+      });
+      return card;
     },
 
     /* ----------------------------- DEPLOY ------------------------------ */
@@ -500,6 +535,8 @@
         [t('ui.results.eliminations'), result.kills],
         [t('ui.results.timeInRaid'), t('ui.results.timeValue', { m: Math.floor(result.time / 60), s: result.time % 60 })],
       ];
+      if (result.levelId) lines.push([t('ui.results.level'), t('level.' + result.levelId + '.name')]);
+      if (result.outcome) lines.push([t('ui.results.extractType'), t(titleKey)]);
       if (result.challengeId) lines.push([t('ui.results.challenge'), t('challenge.' + result.challengeId + '.name')]);
       if (result.paceTag) {
         lines.push([t('ui.results.pace'), t('ui.results.pace.' + result.paceTag, {
@@ -533,6 +570,14 @@
       } else {
         lines.push([t('ui.results.lootLost'), t('ui.results.lootValue', { value: U.formatNum(result.lootValue), items: result.items })]);
         if (extra && extra.carriedValue) lines.push([t('ui.results.gearLost'), result.scav ? t('ui.results.gearLostScav') : t('ui.results.gearLostValue', { value: U.formatNum(extra.carriedValue) })]);
+      }
+      const lp = extra && extra.levelProgress;
+      if (result.levelId && lp && lp.ok) {
+        lines.push([t('ui.results.firstClear'), lp.firstCompletion ? t('ui.common.yes') : t('ui.common.no')]);
+        const unlockText = lp.unlockedLevelId
+          ? t('ui.results.nextUnlocked', { level: t('level.' + lp.unlockedLevelId + '.name') })
+          : lp.allLevelsComplete ? t('ui.results.allLevelsComplete') : t('ui.results.noUnlock');
+        lines.push([t('ui.results.unlock'), unlockText]);
       }
       const tbl = h('div', { class: 'res-table' });
       for (const [k, v] of lines) tbl.appendChild(h('div', { class: 'res-line' }, [h('span', { text: k }), h('b', { text: String(v) })]));

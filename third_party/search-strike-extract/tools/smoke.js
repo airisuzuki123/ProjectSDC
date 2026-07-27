@@ -1332,22 +1332,55 @@ ok('all UI screens & overlays render', () => {
   demoRaid.dungeon.cursePending = true;
   G.UI.openCurseChoice(demoRaid);
 });
-ok('hub shows only challenge and settings entry points', () => {
+ok('phase 37 hub shows five levels with lock states and settings entry', () => {
   const host = { startRaid() {}, startDemoRaid() {}, toHub() {}, };
   G.UI.init(host);
+  G.Profile.resetAll();
   G.UI.showHub();
   const text = collectDomText(G.UI.root);
-  const buttons = collectByClass(G.UI.root, 'menu-btn');
+  const levelCards = collectByClass(G.UI.root, 'level-card');
   const stats = collectByClass(G.UI.root, 'statstrip');
-  if (buttons.length !== 2) throw new Error('hub should expose exactly challenge and settings buttons');
+  if (levelCards.length !== 5) throw new Error('hub should expose five level cards');
   if (stats.length !== 0) throw new Error('hub stats strip should be hidden');
   const hiddenKeys = ['ui.hub.menu.deploy.title', 'ui.hub.menu.stash.title', 'ui.hub.menu.trader.title', 'ui.hub.menu.contracts.title'];
   for (const key of hiddenKeys) {
     const label = G.t(key);
     if (label && label !== key && text.indexOf(label) >= 0) throw new Error('hub still shows hidden entry: ' + key);
   }
-  if (text.indexOf(G.t('ui.hub.menu.challenges.title')) < 0) throw new Error('challenge entry missing from hub');
+  if (text.indexOf(G.t('ui.levels.header')) < 0) throw new Error('level header missing from hub');
+  if (text.indexOf(G.t('level.level_1.name')) < 0 || text.indexOf(G.t('level.level_5.name')) < 0) throw new Error('level names missing from hub');
+  if (text.indexOf(G.t('ui.levels.status.locked')) < 0) throw new Error('locked state missing from hub');
+  if (text.indexOf(G.t('ui.levels.rooms', { n: 8 })) < 0) throw new Error('regular room budget missing from hub');
   if (text.indexOf(G.t('ui.hub.menu.settings.title')) < 0) throw new Error('settings entry missing from hub');
+});
+ok('phase 37 results show level clear and next unlock state', () => {
+  const host = { startRaid() {}, startDemoRaid() {}, toHub() {}, };
+  G.UI.init(host);
+  G.UI.showResults({
+    outcome: 'perfect_extract',
+    kills: 4,
+    time: 360,
+    lootValue: 900,
+    baseLootValue: 600,
+    rewardMultiplier: 1.5,
+    perfectRewardMultiplier: 1.5,
+    items: 4,
+    baseItems: 4,
+    scav: true,
+    levelId: 'level_1',
+    levelOrder: 1,
+    challengeId: 'rising_tide',
+    scrollFragments: 4,
+    requiredFragments: 4,
+  }, {
+    carriedValue: 0,
+    levelProgress: { ok: true, firstCompletion: true, unlockedLevelId: 'level_2', highestUnlockedLevel: 2 },
+  });
+  const text = collectDomText(G.UI.root);
+  if (text.indexOf(G.t('ui.results.level')) < 0 || text.indexOf(G.t('level.level_1.name')) < 0) throw new Error('result level identity missing');
+  if (text.indexOf(G.t('ui.results.extractType')) < 0 || text.indexOf(G.t('ui.results.title.perfectExtract')) < 0) throw new Error('result extract type missing');
+  if (text.indexOf(G.t('ui.results.firstClear')) < 0 || text.indexOf(G.t('ui.common.yes')) < 0) throw new Error('first clear state missing');
+  if (text.indexOf(G.t('ui.results.nextUnlocked', { level: G.t('level.level_2.name') })) < 0) throw new Error('next unlock state missing');
 });
 ok('pause screen repeats the active challenge rule summary', () => {
   const host = { startRaid() {}, startDemoRaid() {}, toHub() {} };
@@ -1635,7 +1668,10 @@ ok('search continues while firing and does not block bullets', () => {
   if (!raid.player.searching) throw new Error('shooting directly canceled the search');
   if (raid.bullets.length <= bulletsBefore) throw new Error('searching blocked bullet release');
   G.Input.resetTouch(); G.Input.touchEnabled = false;
-  G.Input.keys.clear(); G.Input._pressed.clear(); G.Input.mouse.x = 400; G.Input.mouse.y = 300;
+  G.Input.keys.clear(); G.Input._pressed.clear();
+  raid.cam.setViewport(800, 600);
+  raid.cam.x = raid.player.x; raid.cam.y = raid.player.y;
+  G.Input.mouse.x = 520; G.Input.mouse.y = 300;
   raid.player.fireCd = 0;
   const inputBulletsBefore = raid.bullets.length;
   G.Input.mouse.down = true; // fire

@@ -167,13 +167,20 @@
       const row = progress.levels[level.id];
       if (!row) return { ok: false };
       const outcome = result.outcome || 'unknown';
+      const wasCompleted = !!row.completed;
+      const beforeHighest = progress.highestUnlockedLevel;
+      let unlockedLevelId = null;
       row.attempts++;
       if (outcome === 'normal_extract') row.normalExtracts++;
       else if (outcome === 'perfect_extract') {
         row.perfectExtracts++;
         row.completed = true;
         if (Number.isFinite(result.time) && (row.bestPerfectTime == null || result.time < row.bestPerfectTime)) row.bestPerfectTime = Math.floor(result.time);
-        if (level.order === progress.highestUnlockedLevel && level.order < (G.DemoLevels || []).length) progress.highestUnlockedLevel = level.order + 1;
+        if (level.order === progress.highestUnlockedLevel && level.order < (G.DemoLevels || []).length) {
+          progress.highestUnlockedLevel = level.order + 1;
+          const next = G.getDemoLevel && G.getDemoLevel(progress.highestUnlockedLevel);
+          unlockedLevelId = next && next.id;
+        }
       } else if (outcome === 'abandoned') row.abandons++;
       else row.failures++;
       for (const l of G.DemoLevels || []) {
@@ -188,7 +195,14 @@
       });
       progress.history = progress.history.slice(-50);
       this.save();
-      return { ok: true, highestUnlockedLevel: progress.highestUnlockedLevel };
+      return {
+        ok: true,
+        firstCompletion: outcome === 'perfect_extract' && !wasCompleted,
+        unlockedLevelId,
+        highestUnlockedLevel: progress.highestUnlockedLevel,
+        previousHighestUnlockedLevel: beforeHighest,
+        allLevelsComplete: outcome === 'perfect_extract' && level.order === (G.DemoLevels || []).length,
+      };
     },
 
     // ---- money ----
