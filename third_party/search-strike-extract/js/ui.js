@@ -566,10 +566,24 @@
         const ex = extra && extra.extract;
         if (ex && ex.sold > 0) lines.push([t('ui.results.stashFull'), t('ui.results.overflowSold', { value: U.formatNum(ex.sold) })]);
         if (ex && ex.scav) lines.push([t('ui.results.scavTax'), t('ui.results.scavTaxValue')]);
+        const rs = extra && extra.relicSettlement;
+        if (rs && rs.ok) {
+          lines.push([t('ui.results.relicBase'), t('ui.results.currencyValue', { value: U.formatNum(rs.baseValue || 0) })]);
+          lines.push([t('ui.results.relicMultiplier'), 'x' + (rs.rewardMultiplier || 1).toFixed(2)]);
+          lines.push([t('ui.results.relicCurrency'), t('ui.results.currencyValue', { value: U.formatNum(rs.currencyAwarded || 0) })]);
+          if (rs.duplicate) lines.push([t('ui.results.relicDuplicate'), t('ui.common.yes')]);
+          lines.push([t('ui.results.relicBalance'), t('ui.results.currencyValue', { value: U.formatNum(rs.balance || 0) })]);
+          lines.push([t('ui.results.assetsReturned'), formatSettlementItems(rs.carriedItems)]);
+        }
         lines.push([t('ui.results.status'), t('ui.results.statusSecured')]);
       } else {
-        lines.push([t('ui.results.lootLost'), t('ui.results.lootValue', { value: U.formatNum(result.lootValue), items: result.items })]);
+        lines.push([t('ui.results.lootLost'), t('ui.results.lootValue', { value: U.formatNum(result.lostLootValue != null ? result.lostLootValue : result.lootValue), items: result.baseItems || result.items })]);
         if (extra && extra.carriedValue) lines.push([t('ui.results.gearLost'), result.scav ? t('ui.results.gearLostScav') : t('ui.results.gearLostValue', { value: U.formatNum(extra.carriedValue) })]);
+        const rs = extra && extra.relicSettlement;
+        if (rs && rs.ok) {
+          lines.push([t('ui.results.relicCurrency'), t('ui.results.currencyValue', { value: U.formatNum(rs.currencyAwarded || 0) })]);
+          lines.push([t('ui.results.assetsLost'), formatSettlementItems(rs.lostItems)]);
+        }
       }
       const lp = extra && extra.levelProgress;
       if (result.levelId && lp && lp.ok) {
@@ -904,6 +918,10 @@
     return { x, y };
   }
   function statBox(label, val) { return h('div', { class: 'statbox' }, [h('div', { class: 'sb-val', text: String(val) }), h('div', { class: 'sb-label', text: label })]); }
+  function formatSettlementItems(items) {
+    if (!Array.isArray(items) || !items.length) return t('ui.results.assetNone');
+    return items.map(item => iname(item.id) + ' x' + (item.n || 0)).join(', ');
+  }
   function bigBtn(title, sub, cls, onclick) {
     return h('button', { class: 'menu-btn ' + (cls || ''), onclick }, [h('div', { class: 'mb-title', text: title }), h('div', { class: 'mb-sub', text: sub })]);
   }

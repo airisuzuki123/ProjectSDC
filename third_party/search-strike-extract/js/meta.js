@@ -47,6 +47,7 @@
         // counter-goals measure progress *since* you took the favor).
         contracts: { stage: 0, base: null },
         demoProgress: this._freshDemoProgress(),
+        demoEconomy: this._freshDemoEconomy(),
         seenIntro: false,
         version: 1,
       };
@@ -74,6 +75,14 @@
       return progress;
     },
 
+    _freshDemoEconomy() {
+      return {
+        settledRunIds: [],
+        lastSettlement: null,
+        version: 1,
+      };
+    },
+
     load() {
       const d = Save.read();
       const valid = d && Array.isArray(d.stash);
@@ -83,6 +92,8 @@
       for (const k in f) if (this.data[k] === undefined) this.data[k] = f[k];
       if (!this.data.stats) this.data.stats = f.stats;
       if (!this.data.settings) this.data.settings = f.settings;
+      if (!Number.isFinite(this.data.money)) this.data.money = f.money;
+      else this.data.money = Math.max(0, Math.floor(this.data.money));
       // sanitize stash: drop entries with unknown ids or bad counts (corrupt/legacy saves)
       this.data.stash = (Array.isArray(this.data.stash) ? this.data.stash : [])
         .filter(s => s && G.getItem(s.id) && Number.isFinite(s.n) && s.n > 0)
@@ -101,6 +112,7 @@
       // sure the active contract has a baseline snapshot to measure against.
       this._sanitizeProgress();
       this._sanitizeDemoProgress();
+      this._sanitizeDemoEconomy();
       this._syncContractBase();
       return this.data;
     },
@@ -146,8 +158,17 @@
       }
       this.data.demoProgress = progress;
     },
+    _sanitizeDemoEconomy() {
+      const raw = (this.data.demoEconomy && typeof this.data.demoEconomy === 'object' && !Array.isArray(this.data.demoEconomy))
+        ? this.data.demoEconomy : {};
+      this.data.demoEconomy = {
+        settledRunIds: Array.isArray(raw.settledRunIds) ? raw.settledRunIds.filter(id => typeof id === 'string' && id).slice(-100) : [],
+        lastSettlement: (raw.lastSettlement && typeof raw.lastSettlement === 'object' && !Array.isArray(raw.lastSettlement)) ? raw.lastSettlement : null,
+        version: 1,
+      };
+    },
     save() { Save.write(this.data); },
-    resetAll() { Save.clear(); this.data = this.fresh(); this._sanitizeDemoProgress(); this._syncContractBase(); this.save(); },
+    resetAll() { Save.clear(); this.data = this.fresh(); this._sanitizeDemoProgress(); this._sanitizeDemoEconomy(); this._syncContractBase(); this.save(); },
     markIntroSeen() { this.data.seenIntro = true; this.save(); },
 
     demoProgress() { if (!this.data.demoProgress) this._sanitizeDemoProgress(); return this.data.demoProgress; },
@@ -210,6 +231,83 @@
     canAfford(c) { return this.data.money >= c; },
     earn(n) { this.data.money += n; this.save(); },
     spend(n) { if (this.data.money < n) return false; this.data.money -= n; this.save(); return true; },
+
+    recordDemoRelicSettlement(result, player) {
+      this._sanitizeDemoEconomy();
+      const settlement = this._buildDemoRelicSettlement(result, player);
+      const economy = this.data.demoEconomy;
+      if (!settlement.ok) {
+        economy.lastSettlement = settlement;
+        this.save();
+        return settlement;
+      }
+      const alreadyPaid = economy.settledRunIds.indexOf(settlement.settlementId) >= 0;
+      settlement.duplicate = alreadyPaid;
+      settlement.currencyAwarded = alreadyPaid ? 0 : settlement.currency;
+      if (!alreadyPaid && settlement.currency > 0) {
+        this.data.money += settlement.currency;
+        economy.settledRunIds.push(settlement.settlementId);
+        economy.settledRunIds = economy.settledRunIds.slice(-100);
+      }
+      settlement.balance = this.data.money;
+      economy.lastSettlement = settlement;
+      this.save();
+      return settlement;
+    },
+
+    _buildDemoRelicSettlement(result, player) {
+      const outcome = result && result.outcome;
+      const success = outcome === 'extract' || outcome === 'normal_extract' || outcome === 'perfect_extract';
+      const rewardMultiplier = Number.isFinite(result && result.rewardMultiplier) ? result.rewardMultiplier : 1;
+      const settlementId = this._demoSettlementId(result, player);
+      const relics = this._collectDemoSettlementItems(player, 'valuable');
+      const carried = this._collectDemoSettlementItems(player, null, 'valuable');
+      const baseValue = relics.reduce((sum, item) => sum + item.value, 0);
+      const currency = success ? Math.round(baseValue * rewardMultiplier) : 0;
+      return {
+        ok: true,
+        settlementId,
+        success,
+        outcome: outcome || 'unknown',
+        baseValue,
+        rewardMultiplier,
+        currency,
+        currencyAwarded: 0,
+        duplicate: false,
+        balance: this.data.money,
+        relicItems: relics,
+        carriedItems: success ? carried : [],
+        lostItems: success ? [] : relics.concat(carried),
+        lostValue: success ? 0 : baseValue,
+      };
+    },
+
+    _demoSettlementId(result, player) {
+      if (result && result.settlementId) return String(result.settlementId);
+      const bag = player && Array.isArray(player.backpack) ? player.backpack : [];
+      const pack = bag.map(s => s && s.id + ':' + (s.n || 0)).join('|');
+      return [
+        'demo', result && result.levelId, result && result.challengeId,
+        result && result.outcome, result && result.time,
+        result && result.baseLootValue, result && result.rewardMultiplier, pack,
+      ].join(':');
+    },
+
+    _collectDemoSettlementItems(player, includeType, excludeType) {
+      const bag = player && Array.isArray(player.backpack) ? player.backpack : [];
+      const grouped = {};
+      for (const s of bag) {
+        if (!s || !G.getItem(s.id) || !Number.isFinite(s.n) || s.n <= 0) continue;
+        const def = G.getItem(s.id);
+        if (includeType && def.type !== includeType) continue;
+        if (excludeType && def.type === excludeType) continue;
+        if (!grouped[s.id]) grouped[s.id] = { id: s.id, n: 0, value: 0, type: def.type };
+        const n = Math.floor(s.n);
+        grouped[s.id].n += n;
+        grouped[s.id].value += (def.value || 0) * n;
+      }
+      return Object.keys(grouped).map(id => grouped[id]);
+    },
 
     // ---- stash ----
     countItem(id) {

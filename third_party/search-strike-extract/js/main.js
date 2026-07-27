@@ -120,10 +120,11 @@
       const p = this.raid.player;
       let ex = null;
       let levelProgress = null;
+      let relicSettlement = null;
       const extracted = res.outcome === 'extract' || res.outcome === 'normal_extract' || res.outcome === 'perfect_extract';
       if (this.raid.demo) {
         if (res.levelId && G.Profile.recordDemoLevelResult) levelProgress = G.Profile.recordDemoLevelResult(res.levelId, res);
-        // In-raid demo results do not mutate stash/economy.
+        if (G.Profile.recordDemoRelicSettlement) relicSettlement = G.Profile.recordDemoRelicSettlement(res, p);
       } else if (extracted) {
         ex = G.Profile.commitExtract(p, this.raid.scav);
         if (res.outcome === 'extract') G.Profile.recordRaid(res);
@@ -131,7 +132,7 @@
       else G.Profile.commitDeath(p);
       this.state = 'menu';
       G.UI.show();
-      G.UI.showResults(res, { carriedValue: this.carriedValue, extract: ex, levelProgress });
+      G.UI.showResults(res, { carriedValue: this.carriedValue, extract: ex, levelProgress, relicSettlement });
     },
 
     toHub() { G.Audio.stopAmbient(); this.raid = null; this.state = 'menu'; G.UI.showHub(); },

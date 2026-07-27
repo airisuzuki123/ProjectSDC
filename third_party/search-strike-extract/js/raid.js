@@ -1280,6 +1280,7 @@
       const pace = this._demoPaceCheck(Math.round(this.time));
       const playtestMetrics = this._demoPlaytestMetrics();
       this.result = {
+        settlementId: U.uuid(),
         outcome, kills: this.kills,
         lootValue: failed ? 0 : finalLootValue,
         baseLootValue,

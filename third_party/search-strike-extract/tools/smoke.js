@@ -1382,6 +1382,87 @@ ok('phase 37 results show level clear and next unlock state', () => {
   if (text.indexOf(G.t('ui.results.firstClear')) < 0 || text.indexOf(G.t('ui.common.yes')) < 0) throw new Error('first clear state missing');
   if (text.indexOf(G.t('ui.results.nextUnlocked', { level: G.t('level.level_2.name') })) < 0) throw new Error('next unlock state missing');
 });
+ok('phase 38 demo relic settlement awards only valuables and is idempotent', () => {
+  G.Profile.resetAll();
+  const money0 = G.Profile.money();
+  const player = {
+    backpack: [
+      { id: 'v_watch', n: 2 },
+      { id: 'v_cash', n: 1 },
+      { id: 'd_gold_coin', n: 99 },
+      { id: 'd_scroll_fragment', n: 4 },
+      { id: 'm_bandage', n: 1 },
+    ],
+  };
+  const result = { settlementId: 'phase38-settle-a', outcome: 'normal_extract', levelId: 'level_1', challengeId: 'rising_tide', time: 300, rewardMultiplier: 1.5 };
+  const first = G.Profile.recordDemoRelicSettlement(result, player);
+  const expectedBase = G.getItem('v_watch').value * 2 + G.getItem('v_cash').value;
+  const expectedCurrency = Math.round(expectedBase * 1.5);
+  if (first.baseValue !== expectedBase) throw new Error('non-valuable loot entered relic base value');
+  if (first.currencyAwarded !== expectedCurrency) throw new Error('relic currency award mismatch');
+  if (G.Profile.money() !== money0 + expectedCurrency) throw new Error('relic currency not persisted');
+  if (G.Profile.countItem('v_watch') !== 0) throw new Error('phase 38 should not stash returned relics');
+  G.Profile.load();
+  if (G.Profile.money() !== money0 + expectedCurrency) throw new Error('relic currency did not survive reload');
+  const second = G.Profile.recordDemoRelicSettlement(result, player);
+  if (!second.duplicate || second.currencyAwarded !== 0) throw new Error('duplicate settlement paid again');
+  if (G.Profile.money() !== money0 + expectedCurrency) throw new Error('duplicate settlement changed balance');
+});
+ok('phase 38 failed demo settlement pays no relic currency and reports losses', () => {
+  G.Profile.resetAll();
+  const money0 = G.Profile.money();
+  const player = { backpack: [{ id: 'v_gpu', n: 1 }, { id: 'm_medkit', n: 1 }, { id: 'd_scroll_fragment', n: 4 }] };
+  const res = G.Profile.recordDemoRelicSettlement({ settlementId: 'phase38-failed-a', outcome: 'failed', rewardMultiplier: 2 }, player);
+  if (res.currency !== 0 || res.currencyAwarded !== 0) throw new Error('failed settlement awarded currency');
+  if (G.Profile.money() !== money0) throw new Error('failed settlement changed balance');
+  if (!res.lostItems.some(item => item.id === 'v_gpu') || !res.lostItems.some(item => item.id === 'm_medkit')) throw new Error('failed settlement did not report lost assets');
+});
+ok('phase 38 save sanitizes abnormal relic currency balance', () => {
+  store[G.Config.SAVE_KEY] = JSON.stringify({ stash: [{ id: 'w_pistol', n: 1 }], money: -50, demoEconomy: { settledRunIds: [null, 'ok-id'], lastSettlement: 'bad' } });
+  G.Profile.load();
+  if (G.Profile.money() !== 0) throw new Error('negative relic currency was not clamped');
+  if (G.Profile.data.demoEconomy.settledRunIds.length !== 1 || G.Profile.data.demoEconomy.settledRunIds[0] !== 'ok-id') throw new Error('demo economy ids not sanitized');
+  store[G.Config.SAVE_KEY] = JSON.stringify({ stash: [{ id: 'w_pistol', n: 1 }], money: 'NaNish' });
+  G.Profile.load();
+  if (!Number.isFinite(G.Profile.money())) throw new Error('non-numeric relic currency survived load');
+});
+ok('phase 38 results show relic currency settlement details', () => {
+  const host = { startRaid() {}, startDemoRaid() {}, toHub() {}, };
+  G.UI.init(host);
+  G.UI.showResults({
+    outcome: 'normal_extract',
+    kills: 2,
+    time: 240,
+    lootValue: 945,
+    baseLootValue: 630,
+    rewardMultiplier: 1.5,
+    items: 5,
+    baseItems: 5,
+    scav: true,
+    levelId: 'level_1',
+    challengeId: 'rising_tide',
+    scrollFragments: 4,
+    requiredFragments: 4,
+  }, {
+    carriedValue: 0,
+    relicSettlement: {
+      ok: true,
+      success: true,
+      baseValue: 630,
+      rewardMultiplier: 1.5,
+      currency: 945,
+      currencyAwarded: 945,
+      balance: 2145,
+      duplicate: false,
+      carriedItems: [{ id: 'm_bandage', n: 1 }],
+      lostItems: [],
+    },
+  });
+  const text = collectDomText(G.UI.root);
+  if (text.indexOf(G.t('ui.results.relicBase')) < 0) throw new Error('relic base line missing');
+  if (text.indexOf(G.t('ui.results.relicCurrency')) < 0 || text.indexOf(G.t('ui.results.currencyValue', { value: G.Utils.formatNum(945) })) < 0) throw new Error('relic currency line missing');
+  if (text.indexOf(G.t('ui.results.assetsReturned')) < 0 || text.indexOf(G.I18n.itemName('m_bandage')) < 0) throw new Error('asset return detail missing');
+});
 ok('pause screen repeats the active challenge rule summary', () => {
   const host = { startRaid() {}, startDemoRaid() {}, toHub() {} };
   G.UI.init(host);
