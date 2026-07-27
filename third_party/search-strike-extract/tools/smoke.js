@@ -1609,29 +1609,17 @@ ok('legacy save with no contracts/prog is repaired, not crashed', () => {
   if (G.Profile.contractProgress() == null) throw new Error('progress unreadable on legacy save');
 });
 
-function runPhase27Baseline() {
+function runScriptedBaseline(label, seed, scenarios, validateRecords) {
   const originalRandom = Math.random;
-  Math.random = G.RNG(27027);
-  const scenarios = [
-    { outcome: 'failed', duration: 210, orientation: 'horizontal', reward: false },
-    { outcome: 'normal_extract', duration: 260, orientation: 'vertical', reward: true },
-    { outcome: 'normal_extract', duration: 300, orientation: 'horizontal', reward: false },
-    { outcome: 'perfect_extract', duration: 330, orientation: 'vertical', reward: true },
-    { outcome: 'normal_extract', duration: 360, orientation: 'horizontal', reward: true },
-    { outcome: 'failed', duration: 400, orientation: 'vertical', reward: false },
-    { outcome: 'perfect_extract', duration: 450, orientation: 'horizontal', reward: true },
-    { outcome: 'normal_extract', duration: 480, orientation: 'vertical', reward: false },
-    { outcome: 'failed', duration: 500, orientation: 'horizontal', reward: true },
-    { outcome: 'normal_extract', duration: 540, orientation: 'vertical', reward: false },
-  ];
+  Math.random = G.RNG(seed);
   const loc = G.Locations.find(l => l.id === G.DemoConfig.locationId) || G.Locations[0];
 
   function createRaid(scenario) {
     for (let attempt = 0; attempt < 100; attempt++) {
-      const carried = Object.assign(G.Profile.scavKit(), { demo: true });
+      const carried = Object.assign(G.Profile.scavKit(), { demo: true, challengeId: scenario.challengeId || null });
       const raid = new G.Raid(loc, carried);
       const graph = raid.map.roomGraph;
-      if (!graph || graph.orientation !== scenario.orientation) continue;
+      if (!graph || (scenario.orientation && graph.orientation !== scenario.orientation)) continue;
       if (scenario.reward && !graph.rewardRoomIds.length) continue;
       return raid;
     }
@@ -1738,6 +1726,7 @@ function runPhase27Baseline() {
     return {
       run: index + 1,
       input: 'scripted-route',
+      challengeId: result.challengeId || null,
       orientation: raid.map.roomGraph.orientation,
       outcome: result.outcome,
       time: result.time,
@@ -1745,6 +1734,13 @@ function runPhase27Baseline() {
       metrics,
     };
   });
+  if (validateRecords) validateRecords(records);
+  console.log(label + '=' + JSON.stringify(records));
+  Math.random = originalRandom;
+  return records;
+}
+
+function validateBaselineCoverage(records) {
   if (!records.some(r => r.outcome === 'failed') || !records.some(r => r.outcome === 'normal_extract') || !records.some(r => r.outcome === 'perfect_extract')) {
     throw new Error('scripted baseline did not cover all target settlement paths');
   }
@@ -1752,11 +1748,56 @@ function runPhase27Baseline() {
   if (!records.some(r => r.metrics.paidPortalsOpened > 0) || !records.some(r => r.metrics.cursesTaken > 0) || !records.some(r => r.metrics.skillsTaken > 0)) {
     throw new Error('scripted baseline did not cover gold and build branches');
   }
-  console.log('PHASE27_BASELINE=' + JSON.stringify(records));
-  Math.random = originalRandom;
+}
+
+function runPhase27Baseline() {
+  const scenarios = [
+    { outcome: 'failed', duration: 210, orientation: 'horizontal', reward: false },
+    { outcome: 'normal_extract', duration: 260, orientation: 'vertical', reward: true },
+    { outcome: 'normal_extract', duration: 300, orientation: 'horizontal', reward: false },
+    { outcome: 'perfect_extract', duration: 330, orientation: 'vertical', reward: true },
+    { outcome: 'normal_extract', duration: 360, orientation: 'horizontal', reward: true },
+    { outcome: 'failed', duration: 400, orientation: 'vertical', reward: false },
+    { outcome: 'perfect_extract', duration: 450, orientation: 'horizontal', reward: true },
+    { outcome: 'normal_extract', duration: 480, orientation: 'vertical', reward: false },
+    { outcome: 'failed', duration: 500, orientation: 'horizontal', reward: true },
+    { outcome: 'normal_extract', duration: 540, orientation: 'vertical', reward: false },
+  ];
+  runScriptedBaseline('PHASE27_BASELINE', 27027, scenarios, validateBaselineCoverage);
+}
+
+function runPhase35Baseline() {
+  const scenarios = [
+    { challengeId: 'rising_tide', outcome: 'failed', duration: 270, reward: false },
+    { challengeId: 'elite_hunt', outcome: 'normal_extract', duration: 300, reward: true },
+    { challengeId: 'scarce_escape', outcome: 'normal_extract', duration: 360, reward: false },
+    { challengeId: 'charge_gauntlet', outcome: 'failed', duration: 300, reward: false },
+    { challengeId: 'sightline_siege', outcome: 'perfect_extract', duration: 390, reward: true },
+    { challengeId: 'fortune_route', outcome: 'normal_extract', duration: 420, reward: true },
+    { challengeId: 'rising_tide', outcome: 'perfect_extract', duration: 450, reward: true },
+    { challengeId: 'elite_hunt', outcome: 'normal_extract', duration: 480, reward: true },
+    { challengeId: 'charge_gauntlet', outcome: 'normal_extract', duration: 500, reward: false },
+    { challengeId: 'fortune_route', outcome: 'failed', duration: 540, reward: true },
+  ];
+  const records = runScriptedBaseline('PHASE35_BASELINE', 35035, scenarios, records => {
+    validateBaselineCoverage(records);
+    const covered = new Set(records.map(r => r.challengeId));
+    for (const challenge of G.Challenges || []) if (!covered.has(challenge.id)) throw new Error('phase 35 baseline missed challenge: ' + challenge.id);
+  });
+  const outcomeCounts = records.reduce((counts, record) => {
+    counts[record.outcome] = (counts[record.outcome] || 0) + 1;
+    return counts;
+  }, {});
+  console.log('PHASE35_SUMMARY=' + JSON.stringify({
+    runs: records.length,
+    challengeIds: Array.from(new Set(records.map(r => r.challengeId))),
+    outcomeCounts,
+    averageTime: Math.round(records.reduce((sum, record) => sum + record.time, 0) / records.length),
+  }));
 }
 
 if (process.argv.includes('--phase27-baseline')) runPhase27Baseline();
+if (process.argv.includes('--phase35-baseline')) runPhase35Baseline();
 
 console.log('\n========================================');
 console.log(`  ${pass} passed, ${fail} failed`);
